@@ -40,6 +40,7 @@ const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [showPasswordChange, setShowPasswordChange] = useState(false);
   const [appState, setAppState] = useState<'landing' | 'login' | 'app'>('landing');
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
 
   const [users, setUsers] = useState<User[]>(MOCK_USERS);
@@ -64,6 +65,39 @@ const App: React.FC = () => {
   // Toast Notification State
   const [toasts, setToasts] = useState<Notification[]>([]);
   const displayedToastIds = useRef(new Set());
+
+  // Check for persisted user session on initial load
+  useEffect(() => {
+    try {
+        const storedUser = localStorage.getItem('currentUser');
+        if (storedUser) {
+            const user: User = JSON.parse(storedUser);
+            // In a real app, you'd validate this user session. Here, we'll find them in our mock data.
+            const validUser = MOCK_USERS.find(u => u.id === user.id);
+            if(validUser) {
+                // Passwords in mock data are static, in a real app you'd get a token
+                // For this simulation, we'll assume the stored user is the logged in one
+                setCurrentUser(validUser);
+                setIsLoggedIn(true);
+                setAppState('app');
+                if (validUser.forcePasswordChange) {
+                    setShowPasswordChange(true);
+                }
+            } else {
+                localStorage.removeItem('currentUser');
+                setAppState('landing');
+            }
+        } else {
+            setAppState('landing');
+        }
+    } catch (error) {
+        console.error("Failed to process user from localStorage", error);
+        localStorage.removeItem('currentUser');
+        setAppState('landing');
+    } finally {
+        setIsLoading(false); // Done loading
+    }
+  }, []);
 
   useEffect(() => {
     document.title = appName;
@@ -300,6 +334,7 @@ const App: React.FC = () => {
       setCurrentUser(user);
       setIsLoggedIn(true);
       setAppState('app');
+      localStorage.setItem('currentUser', JSON.stringify(user));
       if (user.forcePasswordChange) {
         setShowPasswordChange(true);
       } else {
@@ -316,16 +351,25 @@ const App: React.FC = () => {
     setShowPasswordChange(false);
     setIsChatbotOpen(false);
     setChatHistory([]);
+    localStorage.removeItem('currentUser');
     setAppState('landing');
   }, []);
   
   const handlePasswordChanged = useCallback((userId: string, newPassword: string) => {
-      setUsers(prevUsers => prevUsers.map(u => 
-          u.id === userId 
-          ? { ...u, password: newPassword, forcePasswordChange: false } 
-          : u
-      ));
-      setCurrentUser(prevUser => prevUser ? { ...prevUser, password: newPassword, forcePasswordChange: false } : null);
+      let updatedUserObject: User | null = null;
+      setUsers(prevUsers => prevUsers.map(u => {
+          if (u.id === userId) {
+            updatedUserObject = { ...u, password: newPassword, forcePasswordChange: false };
+            return updatedUserObject;
+          }
+          return u;
+      }));
+      
+      if (updatedUserObject) {
+        setCurrentUser(updatedUserObject);
+        localStorage.setItem('currentUser', JSON.stringify(updatedUserObject));
+      }
+      
       setShowPasswordChange(false);
       setCurrentView('dashboard');
   }, []);
@@ -443,6 +487,7 @@ const App: React.FC = () => {
     setUsers(users.map(u => u.id === updatedUser.id ? updatedUser : u));
     if (currentUser?.id === updatedUser.id) {
         setCurrentUser(updatedUser);
+        localStorage.setItem('currentUser', JSON.stringify(updatedUser));
     }
   };
 
@@ -560,6 +605,13 @@ const App: React.FC = () => {
     return <Installer />;
   }
 
+  if (isLoading) {
+    return (
+        <div className="min-h-screen flex items-center justify-center bg-base-200 dark:bg-dark-base-100">
+            <div className="w-16 h-16 border-4 border-brand-primary border-t-transparent rounded-full animate-spin"></div>
+        </div>
+    );
+  }
 
   const renderContent = () => {
     if (!currentUser) return null;
