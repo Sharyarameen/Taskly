@@ -42,7 +42,7 @@ const AnimatedSection: React.FC<{children: React.ReactNode, className?: string, 
     const delayClass = delay ? `animation-delay-${delay}` : '';
 
     return (
-        <section ref={ref} id={id} className={`${className || ''} ${isVisible ? 'animate-fadeInUp' : 'opacity-0'} ${delayClass}`}>
+        <section ref={ref} id={id} className={`${className} ${isVisible ? 'animate-fadeInUp' : 'opacity-0'}`}>
             {children}
         </section>
     );
