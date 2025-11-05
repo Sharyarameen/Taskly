@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Zenith Task Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              'brand-primary': '#059669',
+              'brand-secondary': '#047857',
+              'base-100': '#ffffff',
+              'base-200': '#f8fafc',
+              'base-300': '#e5e7eb',
+              'base-content': '#1f2937',
+              'base-content-secondary': '#6b7280',
+              'dark-base-100': '#0f172a',
+              'dark-base-200': '#1e293b',
+              'dark-base-300': '#334155',
+              'dark-base-content': '#f1f5f9',
+              'dark-base-content-secondary': '#94a3b8',
+              'status-todo': '#64748b',
+              'status-inprogress': '#3b82f6',
+              'status-blocked': '#f97316',
+              'status-done': '#10b981',
+              'priority-low': '#22c55e',
+              'priority-medium': '#eab308',
+              'priority-high': '#f97316',
+              'priority-critical': '#ef4444',
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      @keyframes fadeInUp {
+        from {
+          opacity: 0;
+          transform: translateY(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      .animate-fadeInUp {
+        opacity: 0; /* Start hidden */
+        animation: fadeInUp 0.6s ease-out forwards;
+      }
+      .animation-delay-200 { animation-delay: 200ms; }
+      .animation-delay-400 { animation-delay: 400ms; }
+      .animation-delay-600 { animation-delay: 600ms; }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@0.15.0/dist/index.js"
+  }
+}
+</script>
+</head>
+  <body class="bg-base-200 dark:bg-dark-base-100 text-base-content dark:text-dark-base-content">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>

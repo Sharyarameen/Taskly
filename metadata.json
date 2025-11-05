@@ -1,0 +1,5 @@
+{
+  "name": "Smash X Task Manager",
+  "description": "A comprehensive Task Management System for organizations, allowing members to assign and track tasks, set deadlines, and manage departments. It features a simple UX for employees and powerful controls for administrators.",
+  "requestFramePermissions": []
+}
