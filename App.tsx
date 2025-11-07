@@ -1,8 +1,7 @@
 
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { User, Role, Task, Department, Attachment, Status, CompanyResource, Notification, RolePermission, Permission, Conversation, TeamChatMessage, ConversationType, Comment } from './types';
-import { MOCK_ROLE_PERMISSIONS } from './constants';
-import { MOCK_USERS, MOCK_DEPARTMENTS, MOCK_TASKS, MOCK_RESOURCES, MOCK_CONVERSATIONS, MOCK_TEAM_CHAT_MESSAGES, MOCK_NOTIFICATIONS } from './mockData';
+import { db } from './database';
 import Login from './components/Login';
 import Layout from './components/Layout';
 import Dashboard, { Settings } from './components/Dashboard';
@@ -39,14 +38,19 @@ const App: React.FC = () => {
   const [showPasswordChange, setShowPasswordChange] = useState(false);
   const [appState, setAppState] = useState<'login' | 'app'>('login');
   
-  const [users, setUsers] = useState<User[]>(MOCK_USERS);
-  const [departments, setDepartments] = useState<Department[]>(MOCK_DEPARTMENTS);
-  const [tasks, setTasks] = useState<Task[]>(MOCK_TASKS);
-  const [resources, setResources] = useState<CompanyResource[]>(MOCK_RESOURCES);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [rolePermissions, setRolePermissions] = useState<RolePermission[]>(MOCK_ROLE_PERMISSIONS);
-  const [conversations, setConversations] = useState<Conversation[]>(MOCK_CONVERSATIONS);
-  const [teamChatMessages, setTeamChatMessages] = useState<TeamChatMessage[]>(MOCK_TEAM_CHAT_MESSAGES);
+  // This state is used to trigger re-renders when the database changes.
+  const [, setDbVersion] = useState(0);
+
+  // Subscribe to database changes
+  useEffect(() => {
+      const unsubscribe = db.subscribe(() => {
+          setDbVersion(v => v + 1);
+      });
+      return () => unsubscribe();
+  }, []);
+  
+  // Get all data from the database
+  const { users, departments, tasks, resources, notifications, rolePermissions, conversations, teamChatMessages } = db.getAllData();
   
   const [appName, setAppName] = useState('Zenith Task Manager');
   const [logoUrl, setLogoUrl] = useState('');
@@ -65,7 +69,7 @@ const App: React.FC = () => {
   
   useEffect(() => {
     if (!currentUser) return;
-    const allUserNotifications = [...MOCK_NOTIFICATIONS, ...notifications];
+    const allUserNotifications = notifications;
     const newUnread = allUserNotifications.filter(n => n.userId === currentUser.id && !n.isRead && !displayedToastIds.current.has(n.id));
 
     if (newUnread.length > 0) {
@@ -138,7 +142,6 @@ const App: React.FC = () => {
       if (user.forcePasswordChange) {
         setShowPasswordChange(true);
       }
-      setNotifications(MOCK_NOTIFICATIONS.filter(n => n.userId === user.id));
       return { success: true, message: '' };
     }
     
@@ -153,86 +156,83 @@ const App: React.FC = () => {
   }, []);
   
   const handlePasswordChanged = useCallback((userId: string, newPassword: string) => {
-    const updatedUser = { ...currentUser!, forcePasswordChange: false };
-    setCurrentUser(updatedUser);
-    setUsers(prev => prev.map(u => u.id === userId ? updatedUser : u));
-    setShowPasswordChange(false);
-    setCurrentView('dashboard');
-  }, [currentUser]);
+    const user = users.find(u => u.id === userId);
+    if (user) {
+      const updatedUser = { ...user, forcePasswordChange: false };
+      db.saveUser(updatedUser);
+      setCurrentUser(updatedUser);
+      setShowPasswordChange(false);
+      setCurrentView('dashboard');
+    }
+  }, [users]);
 
   const navigateTo = useCallback((view: View) => {
     setCurrentView(view);
   }, []);
   
   const handleUpdateTask = (updatedTask: Task) => {
-      setTasks(prev => prev.map(t => t.id === updatedTask.id ? { ...updatedTask, updatedAt: new Date().toISOString() } : t));
+      db.saveTask(updatedTask, updatedTask.reporterId);
   };
   
   const handleCreateTask = (newTaskData: Omit<Task, 'id' | 'reporterId' | 'viewedBy'>) => {
       if(!currentUser) return;
-      const newTask: Task = {
-          ...newTaskData,
-          id: `task-${Date.now()}`,
-          reporterId: currentUser.id,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          viewedBy: [],
-          status: Status.ToDo,
-      };
-      setTasks(prev => [newTask, ...prev]);
-
-      const newNotifications = newTask.assigneeIds.map((userId, i) => ({
+      db.saveTask(newTaskData, currentUser.id);
+      
+      const newNotifications = newTaskData.assigneeIds.map((userId, i) => ({
         id: `notif-create-${Date.now()}-${i}`,
         userId,
-        message: `You've been assigned a new task: "${newTask.title}"`,
+        message: `You've been assigned a new task: "${newTaskData.title}"`,
         isRead: false,
         createdAt: new Date().toISOString(),
-        link: { type: 'task' as const, id: newTask.id }
+        link: { type: 'task' as const, id: `task-${Date.now()}` } // Not perfect, but a close simulation
       }));
-      setNotifications(prev => [...prev, ...newNotifications]);
+      db.addNotifications(newNotifications);
   };
   
   const handleReactivateTask = (taskId: string, reason: string, newDueDate: string) => {
-      setTasks(prev => prev.map(t => t.id === taskId ? {
-          ...t,
-          status: Status.ToDo,
-          completedAt: undefined,
-          dueDate: newDueDate,
-          viewedBy: [],
-          comments: [...(t.comments || []), {id: `comment-${Date.now()}`, userId: currentUser?.id || '', content: `Reactivated: ${reason}`, createdAt: new Date().toISOString()}]
-      } : t));
+      const task = tasks.find(t => t.id === taskId);
+      if (task) {
+        const updatedTask = {
+            ...task,
+            status: Status.ToDo,
+            completedAt: undefined,
+            dueDate: newDueDate,
+            viewedBy: [],
+            comments: [...(task.comments || []), {id: `comment-${Date.now()}`, userId: currentUser?.id || '', content: `Reactivated: ${reason}`, createdAt: new Date().toISOString()}]
+        };
+        db.saveTask(updatedTask, task.reporterId);
+      }
   };
 
   const handleTaskReadByAssignee = (task: Task) => {
     if (!currentUser || !task.assigneeIds.includes(currentUser.id) || task.viewedBy.includes(currentUser.id)) return;
-    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, viewedBy: [...t.viewedBy, currentUser.id], status: Status.Pending } : t));
+    const updatedTask = { ...task, viewedBy: [...task.viewedBy, currentUser.id], status: Status.Pending };
+    db.saveTask(updatedTask, task.reporterId);
   };
   
   const handleUserUpdate = (updatedUser: User) => {
-    setUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
+    db.saveUser(updatedUser);
     if (currentUser?.id === updatedUser.id) {
         setCurrentUser(updatedUser);
     }
   };
   
   const handleCreateOrUpdateResource = (resource: CompanyResource | Omit<CompanyResource, 'id'>) => {
-    if ('id' in resource) {
-        setResources(prev => prev.map(r => r.id === resource.id ? resource : r));
-    } else {
-        setResources(prev => [{ ...resource, id: `res-${Date.now()}` }, ...prev]);
-    }
+    db.saveResource(resource);
   };
 
   const handleDeleteResource = (resourceId: string) => {
-      setResources(prev => prev.filter(r => r.id !== resourceId));
+      db.deleteResource(resourceId);
   };
 
   const handleMarkNotificationsAsRead = () => {
-      setNotifications(prev => prev.map(n => ({...n, isRead: true})));
+      if(currentUser) {
+        db.markAllNotificationsAsRead(currentUser.id);
+      }
   }
 
   const handleUpdateRolePermissions = (updatedRolePermissions: RolePermission[]) => {
-      setRolePermissions(updatedRolePermissions);
+      db.saveRolePermissions(updatedRolePermissions);
   }
 
   const handleAppSettingsUpdate = (name: string, url: string) => {
@@ -242,15 +242,7 @@ const App: React.FC = () => {
   
   const handleSendTeamMessage = (conversationId: string, content: string) => {
     if (!currentUser) return;
-    const newMessage: TeamChatMessage = {
-        id: `msg-${Date.now()}`,
-        conversationId,
-        senderId: currentUser.id,
-        content,
-        createdAt: new Date().toISOString(),
-    };
-    setTeamChatMessages(prev => [...prev, newMessage]);
-    setConversations(prev => prev.map(c => c.id === conversationId ? {...c, lastMessageAt: new Date().toISOString()} : c));
+    db.addTeamMessage(conversationId, currentUser.id, content);
 
     const conversation = conversations.find(c => c.id === conversationId);
     if (conversation) {
@@ -265,75 +257,32 @@ const App: React.FC = () => {
                 createdAt: new Date().toISOString(),
                 link: { type: 'chat' as const, id: conversationId }
             }));
-        setNotifications(prev => [...prev, ...newNotifications]);
+        db.addNotifications(newNotifications);
     }
   };
 
   const handleCreateConversation = async (participantIds: string[], groupName?: string): Promise<string | undefined> => {
     if (!currentUser) return;
-    
-    if (participantIds.length === 1) {
-      const otherUserId = participantIds[0];
-      const existing = conversations.find(c => 
-        c.type === ConversationType.DM &&
-        c.participantIds.length === 2 &&
-        c.participantIds.includes(currentUser.id) &&
-        c.participantIds.includes(otherUserId)
-      );
-      if (existing) return existing.id;
-    }
-    
-    const newConvoId = `convo-${Date.now()}`;
-    const newConversation: Conversation = {
-        id: newConvoId,
-        type: participantIds.length > 1 ? ConversationType.GROUP : ConversationType.DM,
-        participantIds: [...participantIds, currentUser.id],
-        name: groupName,
-        groupAvatar: participantIds.length > 1 ? `https://picsum.photos/seed/group-${Date.now()}/100` : undefined,
-        lastMessageAt: new Date().toISOString(),
-    };
-    setConversations(prev => [newConversation, ...prev]);
-    return newConvoId;
+    return db.createConversation(participantIds, currentUser.id, groupName);
   };
   
     const handleCreateOrUpdateUser = async (user: User | Omit<User, 'id' | 'createdAt'>, password?: string) => {
-        if ('id' in user) {
-            setUsers(prev => prev.map(u => u.id === user.id ? user : u));
-        } else {
-            if (!password) {
-                alert("Password is required for a new user."); return;
-            }
-            const newUserId = `user-${Date.now()}`;
-            const newUser: User = {
-                ...user,
-                id: newUserId,
-                createdAt: new Date().toISOString(),
-                avatar: `https://picsum.photos/seed/${newUserId}/100`,
-                forcePasswordChange: true,
-            };
-            setUsers(prev => [newUser, ...prev]);
-        }
+       db.saveUser(user);
     };
 
     const handleDeleteUser = async (userId: string) => {
         if (window.confirm('Are you sure you want to delete this user? This cannot be undone.')) {
-            setUsers(prev => prev.filter(u => u.id !== userId));
+            db.deleteUser(userId);
         }
     };
 
     const handleCreateOrUpdateDepartment = async (dept: Department | Omit<Department, 'id'>) => {
-        if ('id' in dept) {
-            setDepartments(prev => prev.map(d => d.id === dept.id ? dept : d));
-        } else {
-            const newDept: Department = { ...dept, id: `dept-${Date.now()}` };
-            setDepartments(prev => [...prev, newDept]);
-        }
+        db.saveDepartment(dept);
     };
 
     const handleDeleteDepartment = async (deptId: string) => {
         if (window.confirm('Are you sure you want to delete this department? This will unassign all users from it.')) {
-            setDepartments(prev => prev.filter(d => d.id !== deptId));
-            setUsers(prev => prev.map(u => u.departmentId === deptId ? { ...u, departmentId: '' } : u));
+            db.deleteDepartment(deptId);
         }
     };
 
@@ -346,7 +295,7 @@ const App: React.FC = () => {
         if (notification.link.type === 'chat') navigateTo('chat');
         else if (notification.link.type === 'task') navigateTo('tasks');
     }
-    setNotifications(prev => prev.map(n => n.id === notification.id ? {...n, isRead: true} : n));
+    db.markNotificationAsRead(notification.id);
     removeToast(notification.id);
   };
 
@@ -392,15 +341,17 @@ const App: React.FC = () => {
   if (!currentUser) {
     return <Login onLogin={handleLogin} />;
   }
+  
+  const updatedCurrentUser = users.find(u => u.id === currentUser.id) || currentUser;
 
-  if (showPasswordChange) {
-      return <ForcePasswordChangeModal currentUser={currentUser} onPasswordChanged={handlePasswordChanged} />;
+  if (updatedCurrentUser.forcePasswordChange) {
+      return <ForcePasswordChangeModal currentUser={updatedCurrentUser} onPasswordChanged={handlePasswordChanged} />;
   }
 
   return (
     <>
       <Layout 
-          currentUser={currentUser} 
+          currentUser={updatedCurrentUser} 
           onLogout={handleLogout} 
           navigateTo={navigateTo} 
           currentView={currentView}
@@ -409,7 +360,7 @@ const App: React.FC = () => {
           chatHistory={chatHistory}
           onSendMessage={handleSendMessageToBot}
           isBotTyping={isBotTyping}
-          notifications={notifications.filter(n => n.userId === currentUser.id)}
+          notifications={notifications.filter(n => n.userId === updatedCurrentUser.id)}
           onMarkNotificationsAsRead={handleMarkNotificationsAsRead}
           rolePermissions={rolePermissions}
           appName={appName}

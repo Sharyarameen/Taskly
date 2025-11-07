@@ -327,20 +327,30 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, task, allTasks, 
                 <label className="block text-sm font-medium">Description</label>
                 <textarea name="description" value={formState.description || ''} onChange={handleInputChange} rows={3} className="mt-1 block w-full input-style"></textarea>
               </div>
-
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium">Assignees</label>
+                   <div className="flex items-center gap-2 mt-1 mb-1">
+                        <button onClick={() => setFormState(prev => ({...prev, assigneeIds: [currentUser.id]}))} className="px-2 py-1 text-xs bg-base-200 dark:bg-dark-base-300 rounded hover:bg-base-300 dark:hover:bg-dark-base-300/50">Assign to Me</button>
+                        <button onClick={() => setFormState(prev => ({...prev, assigneeIds: users.map(u => u.id)}))} className="px-2 py-1 text-xs bg-base-200 dark:bg-dark-base-300 rounded hover:bg-base-300 dark:hover:bg-dark-base-300/50">Assign to All</button>
+                    </div>
+                  <select multiple name="assigneeIds" value={formState.assigneeIds} onChange={handleMultiSelectChange} className="block w-full input-style h-24">
+                    {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  </select>
+                </div>
                 <div>
                   <label className="block text-sm font-medium">Status</label>
                   <select name="status" value={formState.status} onChange={handleInputChange} className="mt-1 block w-full input-style">
                     {Object.values(Status).map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium">Priority</label>
+                  <label className="block text-sm font-medium mt-2">Priority</label>
                   <select name="priority" value={formState.priority} onChange={handleInputChange} className="mt-1 block w-full input-style">
                     {Object.values(Priority).map(p => <option key={p} value={p}>{p}</option>)}
                   </select>
                 </div>
+                
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                     <label className="block text-sm font-medium">Due Date</label>
                     <input type="date" name="dueDate" value={formState.dueDate ? new Date(formState.dueDate).toISOString().split('T')[0] : ''} onChange={handleInputChange} className="mt-1 block w-full input-style" />
@@ -354,43 +364,29 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, task, allTasks, 
                         <option value="monthly">Monthly</option>
                     </select>
                 </div>
-              </div>
-
-              {formState.recurrence?.freq === 'weekly' && (
-                  <div>
-                      <label className="block text-sm font-medium">Day of the Week</label>
-                      <select name="dayOfWeek" value={formState.recurrence?.dayOfWeek} onChange={handleRecurrenceChange} className="mt-1 block w-full input-style">
-                          {['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map((day, i) => <option key={i} value={i}>{day}</option>)}
-                      </select>
-                  </div>
-              )}
-              {formState.recurrence?.freq === 'monthly' && (
-                  <div>
-                      <label className="block text-sm font-medium">Day of the Month</label>
-                      <select name="dayOfMonth" value={formState.recurrence?.dayOfMonth} onChange={handleRecurrenceChange} className="mt-1 block w-full input-style">
-                          {Array.from({length: 31}, (_, i) => i + 1).map(day => <option key={day} value={day}>{day}</option>)}
-                      </select>
-                  </div>
-              )}
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium">Assignees</label>
-                   <div className="flex items-center gap-2 mt-1 mb-1">
-                        <button onClick={() => setFormState(prev => ({...prev, assigneeIds: [currentUser.id]}))} className="px-2 py-1 text-xs bg-base-200 dark:bg-dark-base-300 rounded hover:bg-base-300 dark:hover:bg-dark-base-300/50">Assign to Me</button>
-                        <button onClick={() => setFormState(prev => ({...prev, assigneeIds: users.map(u => u.id)}))} className="px-2 py-1 text-xs bg-base-200 dark:bg-dark-base-300 rounded hover:bg-base-300 dark:hover:bg-dark-base-300/50">Assign to All</button>
+                {formState.recurrence?.freq === 'weekly' && (
+                    <div>
+                        <label className="block text-sm font-medium">Day of the Week</label>
+                        <select name="dayOfWeek" value={formState.recurrence?.dayOfWeek} onChange={handleRecurrenceChange} className="mt-1 block w-full input-style">
+                           {['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map((day, i) => <option key={i} value={i}>{day}</option>)}
+                        </select>
                     </div>
-                  <select multiple name="assigneeIds" value={formState.assigneeIds} onChange={handleMultiSelectChange} className="block w-full input-style h-24">
-                    {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                  </select>
-                </div>
-                 <div>
+                )}
+                 {formState.recurrence?.freq === 'monthly' && (
+                    <div>
+                        <label className="block text-sm font-medium">Day of the Month</label>
+                        <select name="dayOfMonth" value={formState.recurrence?.dayOfMonth} onChange={handleRecurrenceChange} className="mt-1 block w-full input-style">
+                           {Array.from({length: 31}, (_, i) => i + 1).map(day => <option key={day} value={day}>{day}</option>)}
+                        </select>
+                    </div>
+                )}
+              </div>
+                <div>
                      <label className="block text-sm font-medium">Blocked By (Dependencies)</label>
                      <select multiple name="dependsOn" value={formState.dependsOn} onChange={handleMultiSelectChange} className="mt-1 block w-full input-style h-24">
                        {availableTasksForDependencies.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
                     </select>
                 </div>
-              </div>
                <div>
                   <label className="block text-sm font-medium">Attachments</label>
                   <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-base-300 dark:border-dark-base-300 border-dashed rounded-md">
