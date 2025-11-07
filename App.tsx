@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { User, Role, Task, Department, Attachment, Status, CompanyResource, Notification, RolePermission, Permission, Conversation, TeamChatMessage, ConversationType, Comment } from './types';
 import { MOCK_ROLE_PERMISSIONS } from './constants';
@@ -75,19 +76,28 @@ const App: React.FC = () => {
 
 
   useEffect(() => {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
-    const assistantName = appName.replace(' Task Manager', '');
-    const chatInstance = ai.chats.create({
-      model: 'gemini-2.5-flash',
-      config: {
-        systemInstruction: `You are ${assistantName} Assistant, an expert in productivity, project management, and business strategy. Help users refine their tasks, brainstorm ideas, and improve their workflow. Be encouraging and provide actionable advice. Format your responses using markdown.`,
-      },
-    });
-    setChat(chatInstance);
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+      const assistantName = appName.replace(' Task Manager', '');
+      const chatInstance = ai.chats.create({
+        model: 'gemini-2.5-flash',
+        config: {
+          systemInstruction: `You are ${assistantName} Assistant, an expert in productivity, project management, and business strategy. Help users refine their tasks, brainstorm ideas, and improve their workflow. Be encouraging and provide actionable advice. Format your responses using markdown.`,
+        },
+      });
+      setChat(chatInstance);
+    } catch (error) {
+        console.error("Could not initialize AI chatbot. AI features will be disabled.", error);
+    }
   }, [appName]);
   
   const handleSendMessageToBot = async (message: string) => {
-    if (!chat) return;
+    if (!chat) {
+        const userMessage: ChatMessage = { role: 'user', parts: [{ text: message }] };
+        const errorMessage: ChatMessage = { role: 'model', parts: [{ text: "Sorry, the AI Assistant is not available right now. Please check your API key configuration." }] };
+        setChatHistory(prev => [...prev, userMessage, errorMessage]);
+        return;
+    }
     
     const userMessage: ChatMessage = { role: 'user', parts: [{ text: message }] };
     setChatHistory(prev => [...prev, userMessage]);
