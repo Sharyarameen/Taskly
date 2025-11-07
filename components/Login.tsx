@@ -22,7 +22,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     }
     const result = await onLogin(email, password);
     if (!result.success) {
-      setError(result.message);
+      setError(result.message || 'An unexpected error occurred. Please try a demo account.');
     }
     setIsLoading(false);
   };
@@ -38,6 +38,9 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     };
 
     const { email, pass } = demoCredentials[role];
+    
+    setEmail(email);
+    setPassword(pass);
     
     const result = await onLogin(email, pass);
 
@@ -86,7 +89,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                           type="password"
                           required
                           className="appearance-none block w-full pl-10 pr-3 py-2.5 border border-gray-300 placeholder-gray-400 text-gray-900 bg-gray-50 rounded-lg focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
-                          placeholder="Type your password"
+                          placeholder="password123"
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
                         />

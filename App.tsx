@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { User, Role, Task, Department, Attachment, Status, CompanyResource, Notification, RolePermission, Permission, Conversation, TeamChatMessage, ConversationType } from './types';
+import { User, Role, Task, Department, Attachment, Status, CompanyResource, Notification, RolePermission, Permission, Conversation, TeamChatMessage, ConversationType, Comment } from './types';
 import { MOCK_ROLE_PERMISSIONS } from './constants';
 import { MOCK_USERS, MOCK_DEPARTMENTS, MOCK_TASKS, MOCK_RESOURCES, MOCK_CONVERSATIONS, MOCK_TEAM_CHAT_MESSAGES, MOCK_NOTIFICATIONS } from './mockData';
 import Login from './components/Login';
@@ -14,12 +14,6 @@ import ChatView from './components/Chat';
 import ForcePasswordChangeModal from './components/ForcePasswordChangeModal';
 import { GoogleGenAI, Chat } from '@google/genai';
 import { ToastContainer } from './components/Toast';
-import LandingPage from './components/LandingPage';
-import Installer from './components/Installer';
-
-import { auth, db } from './firebase';
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut, updatePassword } from 'firebase/auth';
-import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, Timestamp, query, where, setDoc, writeBatch } from 'firebase/firestore';
 
 export type View = 'dashboard' | 'tasks' | 'organization' | 'reports' | 'settings' | 'resources' | 'calendar' | 'chat';
 
@@ -38,116 +32,31 @@ const getConversationDetails = (convo: Conversation, currentUser: User, users: U
     return { name: otherUser?.name || 'DM' };
 };
 
-const convertTimestamps = (data: any) => {
-    const fieldsToConvert = ['createdAt', 'updatedAt', 'completedAt', 'dueDate', 'startDate', 'lastMessageAt'];
-    const convertedData = { ...data };
-    for (const field of fieldsToConvert) {
-        if (data[field] && typeof data[field].toDate === 'function') {
-            convertedData[field] = data[field].toDate().toISOString();
-        }
-    }
-    return convertedData;
-}
-
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [showPasswordChange, setShowPasswordChange] = useState(false);
-  const [appState, setAppState] = useState<'landing' | 'login' | 'app'>('landing');
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isMockMode, setIsMockMode] = useState(false);
-
-
-  const [users, setUsers] = useState<User[]>([]);
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [resources, setResources] = useState<CompanyResource[]>([]);
+  const [appState, setAppState] = useState<'login' | 'app'>('login');
+  
+  const [users, setUsers] = useState<User[]>(MOCK_USERS);
+  const [departments, setDepartments] = useState<Department[]>(MOCK_DEPARTMENTS);
+  const [tasks, setTasks] = useState<Task[]>(MOCK_TASKS);
+  const [resources, setResources] = useState<CompanyResource[]>(MOCK_RESOURCES);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [rolePermissions, setRolePermissions] = useState<RolePermission[]>(MOCK_ROLE_PERMISSIONS);
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [teamChatMessages, setTeamChatMessages] = useState<TeamChatMessage[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>(MOCK_CONVERSATIONS);
+  const [teamChatMessages, setTeamChatMessages] = useState<TeamChatMessage[]>(MOCK_TEAM_CHAT_MESSAGES);
   
-  // App Customization State
   const [appName, setAppName] = useState('Zenith Task Manager');
   const [logoUrl, setLogoUrl] = useState('');
 
-  // Chatbot State
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [isChatbotOpen, setIsChatbotOpen] = useState(false);
   const [isBotTyping, setIsBotTyping] = useState(false);
   const [chat, setChat] = useState<Chat | null>(null);
   
-  // Toast Notification State
   const [toasts, setToasts] = useState<Notification[]>([]);
   const displayedToastIds = useRef(new Set());
-
-  useEffect(() => {
-    if (isMockMode) return;
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-        if (user) {
-            const userDocRef = doc(db, 'users', user.uid);
-            const unsubscribeUser = onSnapshot(userDocRef, (doc) => {
-                if (doc.exists()) {
-                    const userData = { id: doc.id, ...doc.data() } as User;
-                    setCurrentUser(userData);
-                    setAppState('app');
-                    if (userData.forcePasswordChange) {
-                        setShowPasswordChange(true);
-                    }
-                } else {
-                    // User exists in Auth but not Firestore, log them out
-                    handleLogout();
-                }
-                setIsLoading(false);
-            });
-            return () => unsubscribeUser();
-        } else {
-            setCurrentUser(null);
-            setAppState('landing');
-            setIsLoading(false);
-        }
-    });
-
-    return () => unsubscribe();
-  }, [isMockMode]);
-  
-  useEffect(() => {
-      if (!currentUser || isMockMode) return;
-  
-      const createSubscription = (collectionName: string, setter: React.Dispatch<React.SetStateAction<any[]>>) => {
-          const q = query(collection(db, collectionName));
-          return onSnapshot(q, (snapshot) => {
-              const data = snapshot.docs.map(doc => ({ id: doc.id, ...convertTimestamps(doc.data()) }));
-              setter(data);
-          });
-      };
-      
-      const createMessagesSubscription = (collectionName: string, setter: React.Dispatch<React.SetStateAction<any[]>>) => {
-        const q = query(collection(db, collectionName));
-        return onSnapshot(q, (snapshot) => {
-            const data = snapshot.docs.map(doc => ({ id: doc.id, ...convertTimestamps(doc.data()) }));
-            setter(data);
-        });
-      };
-
-      const subscriptions = [
-          createSubscription('users', setUsers),
-          createSubscription('departments', setDepartments),
-          createSubscription('tasks', setTasks),
-          createSubscription('resources', setResources),
-          createSubscription('conversations', setConversations),
-          createSubscription('teamChatMessages', setTeamChatMessages),
-          onSnapshot(query(collection(db, 'notifications'), where('userId', '==', currentUser.id)), (snapshot) => {
-              const data = snapshot.docs.map(doc => ({ id: doc.id, ...convertTimestamps(doc.data()) as Notification }));
-              setNotifications(data);
-          })
-      ];
-  
-      return () => {
-          subscriptions.forEach(unsubscribe => unsubscribe());
-      };
-  }, [currentUser, isMockMode]);
-
 
   useEffect(() => {
     document.title = appName;
@@ -155,7 +64,8 @@ const App: React.FC = () => {
   
   useEffect(() => {
     if (!currentUser) return;
-    const newUnread = notifications.filter(n => !n.isRead && !displayedToastIds.current.has(n.id));
+    const allUserNotifications = [...MOCK_NOTIFICATIONS, ...notifications];
+    const newUnread = allUserNotifications.filter(n => n.userId === currentUser.id && !n.isRead && !displayedToastIds.current.has(n.id));
 
     if (newUnread.length > 0) {
         setToasts(prev => [...prev, ...newUnread]);
@@ -186,16 +96,17 @@ const App: React.FC = () => {
     try {
         const result = await chat.sendMessageStream({ message });
         let text = '';
+        let lastMessage: ChatMessage | null = null;
         for await (const chunk of result) {
             text += chunk.text;
              setChatHistory(prev => {
                 const newHistory = [...prev];
-                const lastMessage = newHistory[newHistory.length - 1];
-                if (lastMessage && lastMessage.role === 'model') {
+                if (lastMessage && newHistory[newHistory.length-1] === lastMessage) {
                     lastMessage.parts[0].text = text;
                     return newHistory;
                 } else {
-                    return [...newHistory, { role: 'model', parts: [{ text }] }];
+                    lastMessage = { role: 'model', parts: [{ text }] };
+                    return [...newHistory, lastMessage];
                 }
             });
         }
@@ -209,268 +120,105 @@ const App: React.FC = () => {
 };
   
   const handleLogin = useCallback(async (email: string, password: string): Promise<{ success: boolean; message: string; }> => {
-    try {
-        await signInWithEmailAndPassword(auth, email, password);
-        return { success: true, message: '' };
-    } catch (error: any) {
-        console.error("Login Error:", error);
-        if (error.code === 'auth/configuration-not-found') {
-            console.log("Firebase config not found. Switching to offline demo mode.");
-            setIsMockMode(true);
-            const mockUser = MOCK_USERS.find(u => u.email === email);
-            if (mockUser) {
-                setUsers(MOCK_USERS);
-                setDepartments(MOCK_DEPARTMENTS);
-                setTasks(MOCK_TASKS);
-                setResources(MOCK_RESOURCES);
-                setConversations(MOCK_CONVERSATIONS);
-                setTeamChatMessages(MOCK_TEAM_CHAT_MESSAGES);
-                setNotifications(MOCK_NOTIFICATIONS.filter(n => n.userId === mockUser.id));
-                setCurrentUser(mockUser);
-                setAppState('app');
-                setIsLoading(false); // Ensure loading is off
-                return { success: true, message: 'Switched to offline demo mode.' };
-            }
-        }
-        if (error.code === 'auth/invalid-credential') {
-             return { success: false, message: 'Invalid email or password. Please try again.' };
-        }
-        return { success: false, message: 'An unexpected error occurred during login.' };
-    }
-  }, []);
-
-  const handleLogout = useCallback(async () => {
-    if (isMockMode) {
-        setIsMockMode(false);
-        setCurrentUser(null);
-        setAppState('landing');
-    } else {
-        try {
-            await signOut(auth);
-            setIsChatbotOpen(false);
-            setChatHistory([]);
-        } catch (error) {
-            console.error("Logout Error:", error);
-        }
-    }
-  }, [isMockMode]);
-  
-  const handlePasswordChanged = useCallback(async (userId: string, newPassword: string) => {
-    if (isMockMode) {
-        const updatedUser = { ...currentUser!, forcePasswordChange: false };
-        setCurrentUser(updatedUser);
-        setUsers(prev => prev.map(u => u.id === userId ? updatedUser : u));
-        setShowPasswordChange(false);
-        setCurrentView('dashboard');
-        return;
-    }
-
-    const user = auth.currentUser;
+    const user = users.find(u => u.email === email && password === 'password123');
+    
     if (user) {
-        try {
-            await updatePassword(user, newPassword);
-            const userDocRef = doc(db, 'users', userId);
-            await updateDoc(userDocRef, { forcePasswordChange: false });
-            setShowPasswordChange(false);
-            setCurrentView('dashboard');
-        } catch (error) {
-            console.error("Password Update Error:", error);
-        }
+      setCurrentUser(user);
+      setAppState('app');
+      if (user.forcePasswordChange) {
+        setShowPasswordChange(true);
+      }
+      setNotifications(MOCK_NOTIFICATIONS.filter(n => n.userId === user.id));
+      return { success: true, message: '' };
     }
-  }, [isMockMode, currentUser]);
+    
+    return { success: false, message: 'Invalid credentials. Please use one of the demo accounts.' };
+  }, [users]);
+
+  const handleLogout = useCallback(() => {
+    setCurrentUser(null);
+    setAppState('login');
+    setIsChatbotOpen(false);
+    setChatHistory([]);
+  }, []);
+  
+  const handlePasswordChanged = useCallback((userId: string, newPassword: string) => {
+    const updatedUser = { ...currentUser!, forcePasswordChange: false };
+    setCurrentUser(updatedUser);
+    setUsers(prev => prev.map(u => u.id === userId ? updatedUser : u));
+    setShowPasswordChange(false);
+    setCurrentView('dashboard');
+  }, [currentUser]);
 
   const navigateTo = useCallback((view: View) => {
     setCurrentView(view);
   }, []);
   
-  const handleUpdateTask = async (updatedTask: Task) => {
-      if (!currentUser) return;
-      if (isMockMode) {
-          setTasks(prev => prev.map(t => t.id === updatedTask.id ? { ...updatedTask, updatedAt: new Date().toISOString() } : t));
-          return;
-      }
-      const { id, ...taskData } = updatedTask;
-      const taskDocRef = doc(db, 'tasks', id);
-
-      const originalTask = tasks.find(t => t.id === id);
-      if (!originalTask) return;
-
-      const taskWithTimestamp = { 
-        ...taskData, 
-        updatedAt: serverTimestamp(),
-        dueDate: Timestamp.fromDate(new Date(taskData.dueDate)),
-        startDate: Timestamp.fromDate(new Date(taskData.startDate)),
-      };
-      
-      await updateDoc(taskDocRef, taskWithTimestamp);
-
-      const newNotifications: Omit<Notification, 'id'>[] = [];
-      const link = { type: 'task' as const, id: id };
-
-      if (originalTask.status !== updatedTask.status) {
-          const message = `Task "${updatedTask.title}" status: ${updatedTask.status}.`;
-          const recipients = new Set([updatedTask.reporterId, ...updatedTask.assigneeIds]);
-          recipients.delete(currentUser.id);
-          recipients.forEach(userId => {
-              newNotifications.push({ userId, message, isRead: false, createdAt: new Date().toISOString(), link });
-          });
-      }
-      
-      const originalCommentCount = originalTask.comments?.length || 0;
-      const updatedCommentCount = updatedTask.comments?.length || 0;
-      if (updatedCommentCount > originalCommentCount) {
-          const newComment = updatedTask.comments![updatedCommentCount - 1];
-          if (newComment.userId === currentUser.id && newComment.type === 'user') {
-               const message = `${currentUser.name} commented on "${updatedTask.title}".`;
-               const recipients = new Set([updatedTask.reporterId, ...updatedTask.assigneeIds]);
-               recipients.delete(currentUser.id);
-               recipients.forEach(userId => {
-                   newNotifications.push({ userId, message, isRead: false, createdAt: new Date().toISOString(), link });
-               });
-          }
-      }
-
-      if (newNotifications.length > 0) {
-          const batch = writeBatch(db);
-          newNotifications.forEach(notif => {
-              const notifRef = doc(collection(db, 'notifications'));
-              batch.set(notifRef, notif);
-          });
-          await batch.commit();
-      }
+  const handleUpdateTask = (updatedTask: Task) => {
+      setTasks(prev => prev.map(t => t.id === updatedTask.id ? { ...updatedTask, updatedAt: new Date().toISOString() } : t));
   };
   
-  const handleCreateTask = async (newTask: Omit<Task, 'id' | 'reporterId' | 'viewedBy'>) => {
+  const handleCreateTask = (newTaskData: Omit<Task, 'id' | 'reporterId' | 'viewedBy'>) => {
       if(!currentUser) return;
-      if (isMockMode) {
-          const mockNewTask: Task = {
-              ...newTask,
-              id: `task-${Date.now()}`,
-              reporterId: currentUser.id,
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-              viewedBy: [],
-              status: Status.ToDo,
-          };
-          setTasks(prev => [mockNewTask, ...prev]);
-          return;
-      }
-      const taskWithMetadata = {
-          ...newTask,
+      const newTask: Task = {
+          ...newTaskData,
+          id: `task-${Date.now()}`,
           reporterId: currentUser.id,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
           viewedBy: [],
           status: Status.ToDo,
-          dueDate: Timestamp.fromDate(new Date(newTask.dueDate)),
-          startDate: Timestamp.fromDate(new Date(newTask.startDate)),
       };
-      
-      const docRef = await addDoc(collection(db, 'tasks'), taskWithMetadata);
+      setTasks(prev => [newTask, ...prev]);
 
-      const newNotifications = newTask.assigneeIds.map(userId => ({
+      const newNotifications = newTask.assigneeIds.map((userId, i) => ({
+        id: `notif-create-${Date.now()}-${i}`,
         userId,
         message: `You've been assigned a new task: "${newTask.title}"`,
         isRead: false,
         createdAt: new Date().toISOString(),
-        link: { type: 'task' as const, id: docRef.id }
+        link: { type: 'task' as const, id: newTask.id }
       }));
-      
-      const batch = writeBatch(db);
-      newNotifications.forEach(notif => {
-          const notifRef = doc(collection(db, 'notifications'));
-          batch.set(notifRef, notif);
-      });
-      await batch.commit();
+      setNotifications(prev => [...prev, ...newNotifications]);
   };
   
-  const handleReactivateTask = async (taskId: string, reason: string, newDueDate: string) => {
-      if (isMockMode) {
-          setTasks(prev => prev.map(t => t.id === taskId ? {
-              ...t,
-              status: Status.ToDo,
-              completedAt: undefined,
-              dueDate: newDueDate,
-              viewedBy: [],
-              comments: [...(t.comments || []), {id: `comment-${Date.now()}`, userId: currentUser?.id || '', content: `Reactivated: ${reason}`, createdAt: new Date().toISOString()}]
-          } : t));
-          return;
-      }
-      const taskDocRef = doc(db, 'tasks', taskId);
-      const originalTask = tasks.find(t => t.id === taskId);
-      if (!originalTask) return;
-      
-      await updateDoc(taskDocRef, {
+  const handleReactivateTask = (taskId: string, reason: string, newDueDate: string) => {
+      setTasks(prev => prev.map(t => t.id === taskId ? {
+          ...t,
           status: Status.ToDo,
           completedAt: undefined,
-          dueDate: Timestamp.fromDate(new Date(newDueDate)),
+          dueDate: newDueDate,
           viewedBy: [],
-          comments: [...(originalTask.comments || []), {id: `comment-${Date.now()}`, userId: currentUser?.id || '', content: `Reactivated: ${reason}`, createdAt: new Date().toISOString()}]
-      });
+          comments: [...(t.comments || []), {id: `comment-${Date.now()}`, userId: currentUser?.id || '', content: `Reactivated: ${reason}`, createdAt: new Date().toISOString()}]
+      } : t));
   };
 
-  const handleTaskReadByAssignee = async (task: Task) => {
+  const handleTaskReadByAssignee = (task: Task) => {
     if (!currentUser || !task.assigneeIds.includes(currentUser.id) || task.viewedBy.includes(currentUser.id)) return;
-    if (isMockMode) {
-        setTasks(prev => prev.map(t => t.id === task.id ? { ...t, viewedBy: [...t.viewedBy, currentUser.id], status: Status.Pending } : t));
-        return;
-    }
-    const taskDocRef = doc(db, 'tasks', task.id);
-    await updateDoc(taskDocRef, {
-        viewedBy: [...task.viewedBy, currentUser.id],
-        status: Status.Pending,
-    });
+    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, viewedBy: [...t.viewedBy, currentUser.id], status: Status.Pending } : t));
   };
   
-  const handleUserUpdate = async (updatedUser: User) => {
-    if (isMockMode) {
-        setUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
-        if (currentUser?.id === updatedUser.id) {
-            setCurrentUser(updatedUser);
-        }
-        return;
+  const handleUserUpdate = (updatedUser: User) => {
+    setUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
+    if (currentUser?.id === updatedUser.id) {
+        setCurrentUser(updatedUser);
     }
-    const { id, ...userData } = updatedUser;
-    const userDocRef = doc(db, 'users', id);
-    await updateDoc(userDocRef, userData);
   };
   
-  const handleCreateOrUpdateResource = async (resource: CompanyResource | Omit<CompanyResource, 'id'>) => {
-    if (isMockMode) {
-        if ('id' in resource) {
-            setResources(prev => prev.map(r => r.id === resource.id ? resource : r));
-        } else {
-            setResources(prev => [{ ...resource, id: `res-${Date.now()}` }, ...prev]);
-        }
-        return;
-    }
+  const handleCreateOrUpdateResource = (resource: CompanyResource | Omit<CompanyResource, 'id'>) => {
     if ('id' in resource) {
-        const { id, ...resourceData } = resource;
-        await updateDoc(doc(db, 'resources', id), resourceData);
+        setResources(prev => prev.map(r => r.id === resource.id ? resource : r));
     } else {
-        await addDoc(collection(db, 'resources'), resource);
+        setResources(prev => [{ ...resource, id: `res-${Date.now()}` }, ...prev]);
     }
   };
 
-  const handleDeleteResource = async (resourceId: string) => {
-      if (isMockMode) {
-          setResources(prev => prev.filter(r => r.id !== resourceId));
-          return;
-      }
-      await deleteDoc(doc(db, 'resources', resourceId));
+  const handleDeleteResource = (resourceId: string) => {
+      setResources(prev => prev.filter(r => r.id !== resourceId));
   };
 
-  const handleMarkNotificationsAsRead = async () => {
-      if (isMockMode) {
-          setNotifications(prev => prev.map(n => ({...n, isRead: true})));
-          return;
-      }
-      const batch = writeBatch(db);
-      notifications.filter(n => !n.isRead).forEach(n => {
-          const notifRef = doc(db, 'notifications', n.id);
-          batch.update(notifRef, { isRead: true });
-      });
-      await batch.commit();
+  const handleMarkNotificationsAsRead = () => {
+      setNotifications(prev => prev.map(n => ({...n, isRead: true})));
   }
 
   const handleUpdateRolePermissions = (updatedRolePermissions: RolePermission[]) => {
@@ -482,68 +230,37 @@ const App: React.FC = () => {
     setLogoUrl(url);
   };
   
-  const handleSendTeamMessage = async (conversationId: string, content: string) => {
+  const handleSendTeamMessage = (conversationId: string, content: string) => {
     if (!currentUser) return;
-    if (isMockMode) {
-        const newMessage: TeamChatMessage = {
-            id: `msg-${Date.now()}`,
-            conversationId,
-            senderId: currentUser.id,
-            content,
-            createdAt: new Date().toISOString(),
-        };
-        setTeamChatMessages(prev => [...prev, newMessage]);
-        setConversations(prev => prev.map(c => c.id === conversationId ? {...c, lastMessageAt: new Date().toISOString()} : c));
-        return;
-    }
-    const newMessage: Omit<TeamChatMessage, 'id'> = {
-      conversationId,
-      senderId: currentUser.id,
-      content,
-      createdAt: new Date().toISOString(), // This will be converted to server timestamp
+    const newMessage: TeamChatMessage = {
+        id: `msg-${Date.now()}`,
+        conversationId,
+        senderId: currentUser.id,
+        content,
+        createdAt: new Date().toISOString(),
     };
-    
-    await addDoc(collection(db, 'teamChatMessages'), { ...newMessage, createdAt: serverTimestamp() });
-    await updateDoc(doc(db, 'conversations', conversationId), { lastMessageAt: serverTimestamp() });
-    
-    // Create notifications for other participants
+    setTeamChatMessages(prev => [...prev, newMessage]);
+    setConversations(prev => prev.map(c => c.id === conversationId ? {...c, lastMessageAt: new Date().toISOString()} : c));
+
     const conversation = conversations.find(c => c.id === conversationId);
     if (conversation) {
         const convoName = getConversationDetails(conversation, currentUser, users).name;
         const newNotifications = conversation.participantIds
             .filter(id => id !== currentUser.id)
-            .map(userId => ({
+            .map((userId, i) => ({
+                id: `notif-msg-${Date.now()}-${i}`,
                 userId,
                 message: `New message from ${currentUser.name} in "${convoName}"`,
                 isRead: false,
                 createdAt: new Date().toISOString(),
                 link: { type: 'chat' as const, id: conversationId }
             }));
-        
-        const batch = writeBatch(db);
-        newNotifications.forEach(notif => {
-            const notifRef = doc(collection(db, 'notifications'));
-            batch.set(notifRef, notif);
-        });
-        await batch.commit();
+        setNotifications(prev => [...prev, ...newNotifications]);
     }
   };
 
   const handleCreateConversation = async (participantIds: string[], groupName?: string): Promise<string | undefined> => {
     if (!currentUser) return;
-    if (isMockMode) {
-        const newConvoId = `convo-${Date.now()}`;
-        const newConversation: Conversation = {
-            id: newConvoId,
-            type: participantIds.length > 1 ? ConversationType.GROUP : ConversationType.DM,
-            participantIds: [...participantIds, currentUser.id],
-            name: groupName,
-            groupAvatar: participantIds.length > 1 ? `https://picsum.photos/seed/group-${Date.now()}/100` : undefined,
-            lastMessageAt: new Date().toISOString(),
-        };
-        setConversations(prev => [newConversation, ...prev]);
-        return newConvoId;
-    }
     
     if (participantIds.length === 1) {
       const otherUserId = participantIds[0];
@@ -556,46 +273,72 @@ const App: React.FC = () => {
       if (existing) return existing.id;
     }
     
-    const newConversationData = {
-      type: participantIds.length > 1 ? ConversationType.GROUP : ConversationType.DM,
-      participantIds: [...participantIds, currentUser.id],
-      name: groupName,
-      groupAvatar: participantIds.length > 1 ? `https://picsum.photos/seed/group-${Date.now()}/100` : undefined,
-      lastMessageAt: serverTimestamp(),
+    const newConvoId = `convo-${Date.now()}`;
+    const newConversation: Conversation = {
+        id: newConvoId,
+        type: participantIds.length > 1 ? ConversationType.GROUP : ConversationType.DM,
+        participantIds: [...participantIds, currentUser.id],
+        name: groupName,
+        groupAvatar: participantIds.length > 1 ? `https://picsum.photos/seed/group-${Date.now()}/100` : undefined,
+        lastMessageAt: new Date().toISOString(),
     };
-    
-    const docRef = await addDoc(collection(db, 'conversations'), newConversationData);
-    return docRef.id;
+    setConversations(prev => [newConversation, ...prev]);
+    return newConvoId;
   };
   
+    const handleCreateOrUpdateUser = async (user: User | Omit<User, 'id' | 'createdAt'>, password?: string) => {
+        if ('id' in user) {
+            setUsers(prev => prev.map(u => u.id === user.id ? user : u));
+        } else {
+            if (!password) {
+                alert("Password is required for a new user."); return;
+            }
+            const newUserId = `user-${Date.now()}`;
+            const newUser: User = {
+                ...user,
+                id: newUserId,
+                createdAt: new Date().toISOString(),
+                avatar: `https://picsum.photos/seed/${newUserId}/100`,
+                forcePasswordChange: true,
+            };
+            setUsers(prev => [newUser, ...prev]);
+        }
+    };
+
+    const handleDeleteUser = async (userId: string) => {
+        if (window.confirm('Are you sure you want to delete this user? This cannot be undone.')) {
+            setUsers(prev => prev.filter(u => u.id !== userId));
+        }
+    };
+
+    const handleCreateOrUpdateDepartment = async (dept: Department | Omit<Department, 'id'>) => {
+        if ('id' in dept) {
+            setDepartments(prev => prev.map(d => d.id === dept.id ? dept : d));
+        } else {
+            const newDept: Department = { ...dept, id: `dept-${Date.now()}` };
+            setDepartments(prev => [...prev, newDept]);
+        }
+    };
+
+    const handleDeleteDepartment = async (deptId: string) => {
+        if (window.confirm('Are you sure you want to delete this department? This will unassign all users from it.')) {
+            setDepartments(prev => prev.filter(d => d.id !== deptId));
+            setUsers(prev => prev.map(u => u.departmentId === deptId ? { ...u, departmentId: '' } : u));
+        }
+    };
+
   const removeToast = (toastId: string) => {
     setToasts(prev => prev.filter(t => t.id !== toastId));
   };
   
-  const handleNotificationClick = async (notification: Notification) => {
+  const handleNotificationClick = (notification: Notification) => {
     if (notification.link) {
         if (notification.link.type === 'chat') navigateTo('chat');
         else if (notification.link.type === 'task') navigateTo('tasks');
     }
-    if (isMockMode) {
-        setNotifications(prev => prev.map(n => n.id === notification.id ? {...n, isRead: true} : n));
-    } else {
-        await updateDoc(doc(db, 'notifications', notification.id), { isRead: true });
-    }
+    setNotifications(prev => prev.map(n => n.id === notification.id ? {...n, isRead: true} : n));
     removeToast(notification.id);
   };
-  
-  if (window.location.hash === '#/install') {
-    return <Installer />;
-  }
-
-  if (isLoading && !isMockMode) {
-    return (
-        <div className="min-h-screen flex items-center justify-center bg-base-200 dark:bg-dark-base-100">
-            <div className="w-16 h-16 border-4 border-brand-primary border-t-transparent rounded-full animate-spin"></div>
-        </div>
-    );
-  }
 
   const renderContent = () => {
     if (!currentUser) return null;
@@ -614,7 +357,7 @@ const App: React.FC = () => {
         content = <ChatView currentUser={currentUser} users={users} conversations={conversations} messages={teamChatMessages} onSendMessage={handleSendTeamMessage} onCreateConversation={handleCreateConversation} />;
         break;
       case 'organization':
-        content = <Organization departments={departments} users={users} setUsers={() => {}} setDepartments={() => {}} currentUser={currentUser} rolePermissions={rolePermissions} onUpdateRolePermissions={handleUpdateRolePermissions} />;
+        content = <Organization departments={departments} users={users} currentUser={currentUser} rolePermissions={rolePermissions} onUpdateRolePermissions={handleUpdateRolePermissions} onCreateOrUpdateUser={handleCreateOrUpdateUser} onDeleteUser={handleDeleteUser} onCreateOrUpdateDepartment={handleCreateOrUpdateDepartment} onDeleteDepartment={handleDeleteDepartment} />;
         break;
       case 'resources':
         content = <Resources currentUser={currentUser} resources={resources} onSave={handleCreateOrUpdateResource} onDelete={handleDeleteResource} rolePermissions={rolePermissions} />;
@@ -632,16 +375,11 @@ const App: React.FC = () => {
     return <div className="animate-fadeInUp" key={currentView}>{content}</div>;
   };
 
-  if (appState === 'landing') {
-    return <LandingPage onShowLogin={() => setAppState('login')} appName={appName} />;
-  }
-  
   if (appState === 'login') {
     return <Login onLogin={handleLogin} />;
   }
 
   if (!currentUser) {
-    // This case should ideally not be hit if logic is correct, but as a fallback:
     return <Login onLogin={handleLogin} />;
   }
 
@@ -661,7 +399,7 @@ const App: React.FC = () => {
           chatHistory={chatHistory}
           onSendMessage={handleSendMessageToBot}
           isBotTyping={isBotTyping}
-          notifications={notifications}
+          notifications={notifications.filter(n => n.userId === currentUser.id)}
           onMarkNotificationsAsRead={handleMarkNotificationsAsRead}
           rolePermissions={rolePermissions}
           appName={appName}
