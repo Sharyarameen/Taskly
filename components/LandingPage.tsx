@@ -36,13 +36,12 @@ const useIntersectionObserver = (options: IntersectionObserverInit) => {
     return [containerRef, isVisible] as const;
 };
 
-// FIX: Add `id` to the component's props to allow passing it to the underlying `section` element.
 const AnimatedSection: React.FC<{children: React.ReactNode, className?: string, delay?: string, id?: string}> = ({ children, className, delay, id }) => {
     const [ref, isVisible] = useIntersectionObserver({ threshold: 0.1 });
     const delayClass = delay ? `animation-delay-${delay}` : '';
 
     return (
-        <section ref={ref} id={id} className={`${className} ${isVisible ? 'animate-fadeInUp' : 'opacity-0'}`}>
+        <section ref={ref} id={id} className={`${className} ${isVisible ? 'animate-fadeInUp' : 'opacity-0'} ${delayClass}`}>
             {children}
         </section>
     );
@@ -86,8 +85,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onShowLogin, appName }) => {
                        <a href="#faq" className="font-semibold text-gray-300 hover:text-white transition-colors">FAQ</a>
                     </nav>
                     <div className="space-x-4">
-                        <button onClick={onShowLogin} className="font-semibold hover:text-gray-300 transition-colors">Login</button>
-                        <button onClick={onShowLogin} className="bg-indigo-600 font-semibold px-4 py-2 rounded-md hover:bg-indigo-500 transition-colors shadow-lg">Sign Up</button>
+                        <button onClick={onShowLogin} className="bg-indigo-600 font-semibold px-4 py-2 rounded-md hover:bg-indigo-500 transition-colors shadow-lg">Login / Get Started</button>
                     </div>
                 </header>
 
@@ -102,7 +100,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onShowLogin, appName }) => {
                         </p>
                         <div className="flex justify-center items-center gap-4">
                              <button onClick={onShowLogin} className="bg-white text-indigo-700 font-bold px-8 py-3 rounded-lg text-lg hover:bg-gray-200 transition-all shadow-xl transform hover:scale-105">
-                                Get Started For Free
+                                Get Started
                             </button>
                         </div>
                     </AnimatedSection>
@@ -223,7 +221,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onShowLogin, appName }) => {
                     <h2 className="text-3xl md:text-4xl font-bold mb-4">Ready to Transform Your Workflow?</h2>
                     <p className="text-indigo-200 mb-8 max-w-2xl mx-auto">Join thousands of productive teams who use {appName} to get things done. Sign up is free and takes less than a minute.</p>
                     <button onClick={onShowLogin} className="bg-white text-indigo-700 font-bold px-8 py-3 rounded-lg text-lg hover:bg-gray-200 transition-colors shadow-xl transform hover:scale-105">
-                        Start For Free Today
+                        Get Started Today
                     </button>
                 </div>
             </AnimatedSection>

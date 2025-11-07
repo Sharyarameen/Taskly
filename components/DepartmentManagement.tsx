@@ -2,18 +2,22 @@ import React, { useState, useCallback } from 'react';
 import { Department, User, Role, RolePermission, Permission } from '../types';
 import { PlusIcon, TrashIcon, PencilIcon } from './icons/SolidIcons';
 import PermissionsManagement from './PermissionsManagement';
+import { auth, db } from '../firebase';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { setDoc, doc, updateDoc, deleteDoc, addDoc, collection } from 'firebase/firestore';
+
 
 interface OrganizationProps {
   departments: Department[];
   users: User[];
-  setUsers: React.Dispatch<React.SetStateAction<User[]>>;
-  setDepartments: React.Dispatch<React.SetStateAction<Department[]>>;
+  setUsers: React.Dispatch<React.SetStateAction<User[]>>; // Keeping for now to avoid massive refactor, though should be replaced
+  setDepartments: React.Dispatch<React.SetStateAction<Department[]>>; // Same as above
   currentUser: User;
   rolePermissions: RolePermission[];
   onUpdateRolePermissions: (updatedPermissions: RolePermission[]) => void;
 }
 
-const Organization: React.FC<OrganizationProps> = ({ departments, users, setUsers, setDepartments, currentUser, rolePermissions, onUpdateRolePermissions }) => {
+const Organization: React.FC<OrganizationProps> = ({ departments, users, currentUser, rolePermissions, onUpdateRolePermissions }) => {
   const [activeTab, setActiveTab] = useState('users');
 
   const hasPermission = useCallback((permission: Permission): boolean => {
@@ -64,8 +68,8 @@ const Organization: React.FC<OrganizationProps> = ({ departments, users, setUser
         </nav>
       </div>
       <div>
-        {activeTab === 'users' && <UserManagement users={users} setUsers={setUsers} departments={departments} canManage={hasPermission(Permission.CanManageUsers)} />}
-        {activeTab === 'departments' && <DepartmentManagement departments={departments} setDepartments={setDepartments} users={users} setUsers={setUsers} canManage={hasPermission(Permission.CanManageDepartments)} />}
+        {activeTab === 'users' && <UserManagement users={users} departments={departments} canManage={hasPermission(Permission.CanManageUsers)} />}
+        {activeTab === 'departments' && <DepartmentManagement departments={departments} users={users} canManage={hasPermission(Permission.CanManageDepartments)} />}
         {activeTab === 'permissions' && canManagePermissions && <PermissionsManagement rolePermissions={rolePermissions} onSave={onUpdateRolePermissions} />}
       </div>
     </div>
@@ -73,7 +77,7 @@ const Organization: React.FC<OrganizationProps> = ({ departments, users, setUser
 };
 
 // --- User Management ---
-const UserManagement = ({ users, setUsers, departments, canManage }: { users: User[], setUsers: React.Dispatch<React.SetStateAction<User[]>>, departments: Department[], canManage: boolean }) => {
+const UserManagement = ({ users, departments, canManage }: { users: User[], departments: Department[], canManage: boolean }) => {
     
     const [isUserModalOpen, setIsUserModalOpen] = useState(false);
     const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -88,26 +92,39 @@ const UserManagement = ({ users, setUsers, departments, canManage }: { users: Us
         setIsUserModalOpen(true);
     };
 
-    const handleDeleteUser = (userId: string) => {
+    const handleDeleteUser = async (userId: string) => {
         if(window.confirm('Are you sure you want to delete this user? This cannot be undone.')) {
-            setUsers(prev => prev.filter(u => u.id !== userId));
+            // Note: Deleting from Firebase Auth requires a server-side environment.
+            // We will only delete the Firestore record here.
+            await deleteDoc(doc(db, 'users', userId));
         }
     }
 
-    const handleSaveUser = (user: User | Omit<User, 'id' | 'createdAt'>) => {
+    const handleSaveUser = async (user: User | Omit<User, 'id' | 'createdAt'>, password?: string) => {
         if ('id' in user) {
             // Update
-            setUsers(prev => prev.map(u => u.id === user.id ? user as User : u));
+            const { id, ...userData } = user;
+            await updateDoc(doc(db, 'users', id), userData);
         } else {
             // Create
-            const newUser: User = {
-                ...user,
-                id: `user-${Date.now()}`,
-                createdAt: new Date().toISOString(),
-                avatar: `https://picsum.photos/seed/user-${Date.now()}/100`,
-                forcePasswordChange: false, // User can log in with this password
-            };
-            setUsers(prev => [...prev, newUser]);
+            if (!password) {
+                alert("Password is required for a new user.");
+                return;
+            }
+            try {
+                const userCredential = await createUserWithEmailAndPassword(auth, user.email!, password);
+                const newUser: Omit<User, 'id' | 'password'> = {
+                    ...user,
+                    createdAt: new Date().toISOString(),
+                    avatar: `https://picsum.photos/seed/${userCredential.user.uid}/100`,
+                    forcePasswordChange: true,
+                };
+                await setDoc(doc(db, "users", userCredential.user.uid), newUser);
+
+            } catch(error: any) {
+                alert("Error creating user: " + error.message);
+                console.error(error);
+            }
         }
         setIsUserModalOpen(false);
     };
@@ -158,28 +175,27 @@ const UserManagement = ({ users, setUsers, departments, canManage }: { users: Us
 }
 
 // --- Department Management ---
-const DepartmentManagement = ({ departments, setDepartments, users, setUsers, canManage }: { departments: Department[], setDepartments: React.Dispatch<React.SetStateAction<Department[]>>, users: User[], setUsers: React.Dispatch<React.SetStateAction<User[]>>, canManage: boolean }) => {
+const DepartmentManagement = ({ departments, users, canManage }: { departments: Department[], users: User[], canManage: boolean }) => {
   const [newDeptName, setNewDeptName] = useState('');
   const [editingDeptId, setEditingDeptId] = useState<string | null>(null);
   const [editingDeptName, setEditingDeptName] = useState('');
 
-  const handleAddDepartment = () => {
+  const handleAddDepartment = async () => {
     if (newDeptName.trim()) {
-      const newDept: Department = { id: `dept-${Date.now()}`, name: newDeptName.trim() };
-      setDepartments([...departments, newDept]);
+      await addDoc(collection(db, 'departments'), { name: newDeptName.trim() });
       setNewDeptName('');
     }
   };
 
-  const handleUpdateDepartment = (id: string) => {
-    setDepartments(departments.map(d => d.id === id ? { ...d, name: editingDeptName.trim() } : d));
+  const handleUpdateDepartment = async (id: string) => {
+    await updateDoc(doc(db, 'departments', id), { name: editingDeptName.trim() });
     setEditingDeptId(null);
   };
 
-  const handleDeleteDepartment = (id: string) => {
+  const handleDeleteDepartment = async (id: string) => {
     if (window.confirm('Are you sure you want to delete this department? This will unassign all users from it.')) {
-        setDepartments(departments.filter(d => d.id !== id));
-        setUsers(users.map(u => u.departmentId === id ? { ...u, departmentId: '' } : u));
+        await deleteDoc(doc(db, 'departments', id));
+        // This should trigger onSnapshot listeners to update the UI
     }
   };
 
@@ -231,15 +247,11 @@ const DepartmentManagement = ({ departments, setDepartments, users, setUsers, ca
 
 
 // --- User Modal ---
-const UserModal = ({ isOpen, onClose, user, onSave, departments }: { isOpen: boolean, onClose: () => void, user: User | null, onSave: (user: User | Omit<User, 'id' | 'createdAt'>) => void, departments: Department[] }) => {
+const UserModal = ({ isOpen, onClose, user, onSave, departments }: { isOpen: boolean, onClose: () => void, user: User | null, onSave: (user: User | Omit<User, 'id' | 'createdAt'>, password?: string) => void, departments: Department[] }) => {
     const [formState, setFormState] = useState<Partial<User>>(user || { name: '', email: '', phone: '', role: Role.Employee, departmentId: '', password: ''});
     
     const handleSave = () => {
-        if (!user && !formState.password) {
-            alert('Password is required for new users.');
-            return;
-        }
-        onSave(formState as User);
+        onSave(formState as User, formState.password);
     }
     
     return (

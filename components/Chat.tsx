@@ -9,7 +9,8 @@ interface ChatViewProps {
   conversations: Conversation[];
   messages: TeamChatMessage[];
   onSendMessage: (conversationId: string, content: string) => void;
-  onCreateConversation: (participantIds: string[], name?: string) => string | undefined;
+  // FIX: Update onCreateConversation to return a Promise, as creating a conversation is an async operation.
+  onCreateConversation: (participantIds: string[], name?: string) => Promise<string | undefined>;
 }
 
 const ChatView: React.FC<ChatViewProps> = ({ currentUser, users, conversations, messages, onSendMessage, onCreateConversation }) => {
@@ -62,8 +63,9 @@ const ChatView: React.FC<ChatViewProps> = ({ currentUser, users, conversations, 
       }
   };
 
-  const handleCreateNewConversation = (participantIds: string[], groupName?: string) => {
-      const newConvoId = onCreateConversation(participantIds, groupName);
+  // FIX: Make the handler async to await the result of creating a conversation.
+  const handleCreateNewConversation = async (participantIds: string[], groupName?: string) => {
+      const newConvoId = await onCreateConversation(participantIds, groupName);
       if (newConvoId) {
           setActiveConversationId(newConvoId);
       }
@@ -198,7 +200,8 @@ const NewChatModal: React.FC<{
     currentUser: User;
     users: User[];
     onClose: () => void;
-    onCreate: (participantIds: string[], groupName?: string) => void;
+    // FIX: Update onCreate prop to handle async function.
+    onCreate: (participantIds: string[], groupName?: string) => Promise<void> | void;
 }> = ({ currentUser, users, onClose, onCreate }) => {
     const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
     const [groupName, setGroupName] = useState('');
@@ -211,13 +214,14 @@ const NewChatModal: React.FC<{
         setSelectedUserIds(prev => prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]);
     };
 
-    const handleCreateClick = () => {
+    // FIX: Make handler async to await the creation.
+    const handleCreateClick = async () => {
         if (selectedUserIds.length === 0) return;
         if (selectedUserIds.length > 1 && !groupName.trim()) {
             alert("Please enter a name for the group chat.");
             return;
         }
-        onCreate(selectedUserIds, groupName);
+        await onCreate(selectedUserIds, groupName);
     };
 
     return (

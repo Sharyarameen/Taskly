@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-// FIX: Import Status enum to use for type safety.
 import { User, Role, Task, Department, Attachment, Status, CompanyResource, Notification, RolePermission, Permission, Conversation, TeamChatMessage, ConversationType } from './types';
-import { MOCK_USERS, MOCK_DEPARTMENTS, MOCK_TASKS, MOCK_RESOURCES, MOCK_ROLE_PERMISSIONS, MOCK_CONVERSATIONS, MOCK_TEAM_CHAT_MESSAGES } from './constants';
+import { MOCK_ROLE_PERMISSIONS } from './constants';
+import { MOCK_USERS, MOCK_DEPARTMENTS, MOCK_TASKS, MOCK_RESOURCES, MOCK_CONVERSATIONS, MOCK_TEAM_CHAT_MESSAGES, MOCK_NOTIFICATIONS } from './mockData';
 import Login from './components/Login';
 import Layout from './components/Layout';
 import Dashboard, { Settings } from './components/Dashboard';
@@ -16,6 +16,10 @@ import { GoogleGenAI, Chat } from '@google/genai';
 import { ToastContainer } from './components/Toast';
 import LandingPage from './components/LandingPage';
 import Installer from './components/Installer';
+
+import { auth, db } from './firebase';
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut, updatePassword } from 'firebase/auth';
+import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, Timestamp, query, where, setDoc, writeBatch } from 'firebase/firestore';
 
 export type View = 'dashboard' | 'tasks' | 'organization' | 'reports' | 'settings' | 'resources' | 'calendar' | 'chat';
 
@@ -34,23 +38,34 @@ const getConversationDetails = (convo: Conversation, currentUser: User, users: U
     return { name: otherUser?.name || 'DM' };
 };
 
+const convertTimestamps = (data: any) => {
+    const fieldsToConvert = ['createdAt', 'updatedAt', 'completedAt', 'dueDate', 'startDate', 'lastMessageAt'];
+    const convertedData = { ...data };
+    for (const field of fieldsToConvert) {
+        if (data[field] && typeof data[field].toDate === 'function') {
+            convertedData[field] = data[field].toDate().toISOString();
+        }
+    }
+    return convertedData;
+}
+
 const App: React.FC = () => {
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [showPasswordChange, setShowPasswordChange] = useState(false);
   const [appState, setAppState] = useState<'landing' | 'login' | 'app'>('landing');
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isMockMode, setIsMockMode] = useState(false);
 
 
-  const [users, setUsers] = useState<User[]>(MOCK_USERS);
-  const [departments, setDepartments] = useState<Department[]>(MOCK_DEPARTMENTS);
-  const [tasks, setTasks] = useState<Task[]>(MOCK_TASKS);
-  const [resources, setResources] = useState<CompanyResource[]>(MOCK_RESOURCES);
+  const [users, setUsers] = useState<User[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [resources, setResources] = useState<CompanyResource[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [rolePermissions, setRolePermissions] = useState<RolePermission[]>(MOCK_ROLE_PERMISSIONS);
-  const [conversations, setConversations] = useState<Conversation[]>(MOCK_CONVERSATIONS);
-  const [teamChatMessages, setTeamChatMessages] = useState<TeamChatMessage[]>(MOCK_TEAM_CHAT_MESSAGES);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [teamChatMessages, setTeamChatMessages] = useState<TeamChatMessage[]>([]);
   
   // App Customization State
   const [appName, setAppName] = useState('Zenith Task Manager');
@@ -66,38 +81,73 @@ const App: React.FC = () => {
   const [toasts, setToasts] = useState<Notification[]>([]);
   const displayedToastIds = useRef(new Set());
 
-  // Check for persisted user session on initial load
   useEffect(() => {
-    try {
-        const storedUser = localStorage.getItem('currentUser');
-        if (storedUser) {
-            const user: User = JSON.parse(storedUser);
-            // In a real app, you'd validate this user session. Here, we'll find them in our mock data.
-            const validUser = MOCK_USERS.find(u => u.id === user.id);
-            if(validUser) {
-                // Passwords in mock data are static, in a real app you'd get a token
-                // For this simulation, we'll assume the stored user is the logged in one
-                setCurrentUser(validUser);
-                setIsLoggedIn(true);
-                setAppState('app');
-                if (validUser.forcePasswordChange) {
-                    setShowPasswordChange(true);
+    if (isMockMode) return;
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+        if (user) {
+            const userDocRef = doc(db, 'users', user.uid);
+            const unsubscribeUser = onSnapshot(userDocRef, (doc) => {
+                if (doc.exists()) {
+                    const userData = { id: doc.id, ...doc.data() } as User;
+                    setCurrentUser(userData);
+                    setAppState('app');
+                    if (userData.forcePasswordChange) {
+                        setShowPasswordChange(true);
+                    }
+                } else {
+                    // User exists in Auth but not Firestore, log them out
+                    handleLogout();
                 }
-            } else {
-                localStorage.removeItem('currentUser');
-                setAppState('landing');
-            }
+                setIsLoading(false);
+            });
+            return () => unsubscribeUser();
         } else {
+            setCurrentUser(null);
             setAppState('landing');
+            setIsLoading(false);
         }
-    } catch (error) {
-        console.error("Failed to process user from localStorage", error);
-        localStorage.removeItem('currentUser');
-        setAppState('landing');
-    } finally {
-        setIsLoading(false); // Done loading
-    }
-  }, []);
+    });
+
+    return () => unsubscribe();
+  }, [isMockMode]);
+  
+  useEffect(() => {
+      if (!currentUser || isMockMode) return;
+  
+      const createSubscription = (collectionName: string, setter: React.Dispatch<React.SetStateAction<any[]>>) => {
+          const q = query(collection(db, collectionName));
+          return onSnapshot(q, (snapshot) => {
+              const data = snapshot.docs.map(doc => ({ id: doc.id, ...convertTimestamps(doc.data()) }));
+              setter(data);
+          });
+      };
+      
+      const createMessagesSubscription = (collectionName: string, setter: React.Dispatch<React.SetStateAction<any[]>>) => {
+        const q = query(collection(db, collectionName));
+        return onSnapshot(q, (snapshot) => {
+            const data = snapshot.docs.map(doc => ({ id: doc.id, ...convertTimestamps(doc.data()) }));
+            setter(data);
+        });
+      };
+
+      const subscriptions = [
+          createSubscription('users', setUsers),
+          createSubscription('departments', setDepartments),
+          createSubscription('tasks', setTasks),
+          createSubscription('resources', setResources),
+          createSubscription('conversations', setConversations),
+          createSubscription('teamChatMessages', setTeamChatMessages),
+          onSnapshot(query(collection(db, 'notifications'), where('userId', '==', currentUser.id)), (snapshot) => {
+              const data = snapshot.docs.map(doc => ({ id: doc.id, ...convertTimestamps(doc.data()) as Notification }));
+              setNotifications(data);
+          })
+      ];
+  
+      return () => {
+          subscriptions.forEach(unsubscribe => unsubscribe());
+      };
+  }, [currentUser, isMockMode]);
+
 
   useEffect(() => {
     document.title = appName;
@@ -105,17 +155,10 @@ const App: React.FC = () => {
   
   useEffect(() => {
     if (!currentUser) return;
-    // Filter for new, unread notifications for the current user that haven't been displayed as toasts yet
-    const newUnread = notifications.filter(n => 
-        n.userId === currentUser.id && 
-        !n.isRead && 
-        !displayedToastIds.current.has(n.id)
-    );
+    const newUnread = notifications.filter(n => !n.isRead && !displayedToastIds.current.has(n.id));
 
     if (newUnread.length > 0) {
-        // Add new notifications to the toast queue
         setToasts(prev => [...prev, ...newUnread]);
-        // Mark these notifications as displayed to prevent re-adding them
         newUnread.forEach(n => displayedToastIds.current.add(n.id));
     }
   }, [notifications, currentUser]);
@@ -133,40 +176,6 @@ const App: React.FC = () => {
     setChat(chatInstance);
   }, [appName]);
   
-  // Simulate bot sending daily task reminder to General channel
-  useEffect(() => {
-    const botSentToday = localStorage.getItem('botSentToday');
-    const today = new Date().toDateString();
-    
-    if (botSentToday !== today) {
-      const generalConvo = conversations.find(c => c.name === 'General');
-      if (generalConvo) {
-        const overdueTasks = tasks.filter(t => new Date(t.dueDate) < new Date() && t.status !== Status.Done);
-        
-        let messageContent = `**Good morning, team!** Here's a quick look at overdue tasks:`;
-        if (overdueTasks.length > 0) {
-            messageContent += overdueTasks.map(t => `\n- **${t.title}** (Overdue)`).join('');
-        } else {
-            messageContent = `**Good morning, team!** Great job, there are no overdue tasks today. Keep up the momentum!`;
-        }
-        
-        const botMessage: TeamChatMessage = {
-          id: `msg-${Date.now()}`,
-          conversationId: generalConvo.id,
-          senderId: 'user-bot',
-          content: messageContent,
-          createdAt: new Date().toISOString(),
-        };
-
-        setTimeout(() => {
-          setTeamChatMessages(prev => [...prev, botMessage]);
-          setConversations(prev => prev.map(c => c.id === generalConvo.id ? {...c, lastMessageAt: new Date().toISOString()} : c));
-          localStorage.setItem('botSentToday', today);
-        }, 2000); // Send after 2 seconds
-      }
-    }
-  }, [conversations, tasks]);
-
   const handleSendMessageToBot = async (message: string) => {
     if (!chat) return;
     
@@ -199,316 +208,269 @@ const App: React.FC = () => {
     }
 };
   
-  // Advanced recurring task generation
-  useEffect(() => {
-    const interval = setInterval(() => {
-        const newNotifications: Notification[] = [];
-        setTasks(prevTasks => {
-            const newTasks: Task[] = [];
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-
-            const parentTasks = prevTasks.filter(task => task.recurrence && task.recurrence.freq !== 'none' && !task.parentTaskId);
-
-            parentTasks.forEach(parent => {
-                const instances = prevTasks.filter(t => t.parentTaskId === parent.id);
-                
-                const todayString = today.toDateString();
-                const hasInstanceForToday = instances.some(inst => new Date(inst.createdAt).toDateString() === todayString);
-
-                if (hasInstanceForToday) return;
-
-                let shouldCreate = false;
-                switch (parent.recurrence?.freq) {
-                    case 'daily':
-                        shouldCreate = true;
-                        break;
-                    case 'weekly':
-                        if (today.getDay() === parent.recurrence.dayOfWeek) {
-                            shouldCreate = true;
-                        }
-                        break;
-                    case 'monthly':
-                        if (today.getDate() === parent.recurrence.dayOfMonth) {
-                            shouldCreate = true;
-                        }
-                        break;
-                }
-                
-                if (parent.recurrence?.endDate && today > new Date(parent.recurrence.endDate)) {
-                    shouldCreate = false;
-                }
-
-                if (shouldCreate) {
-                    const newDueDate = new Date(today);
-                    const originalDueDate = new Date(parent.dueDate);
-                    newDueDate.setHours(originalDueDate.getHours(), originalDueDate.getMinutes(), originalDueDate.getSeconds());
-
-                    const newInstance: Task = {
-                        ...parent,
-                        id: `task-${Date.now()}-${Math.random()}`,
-                        parentTaskId: parent.id,
-                        dueDate: newDueDate.toISOString(),
-                        createdAt: new Date().toISOString(),
-                        status: Status.ToDo,
-                        completedAt: undefined,
-                        viewedBy: [],
-                        comments: [],
-                        attachments: parent.attachments,
-                    };
-                    newTasks.push(newInstance);
-
-                    newInstance.assigneeIds.forEach(userId => {
-                      newNotifications.push({
-                        id: `notif-recur-${newInstance.id}-${userId}`,
-                        userId,
-                        message: `A new recurring task has been created: "${newInstance.title}"`,
-                        isRead: false,
-                        createdAt: new Date().toISOString(),
-                        link: { type: 'task', id: newInstance.id },
-                      });
-                    });
-                }
-            });
-
-            if (newNotifications.length > 0) {
-              setNotifications(prev => [...prev, ...newNotifications]);
+  const handleLogin = useCallback(async (email: string, password: string): Promise<{ success: boolean; message: string; }> => {
+    try {
+        await signInWithEmailAndPassword(auth, email, password);
+        return { success: true, message: '' };
+    } catch (error: any) {
+        console.error("Login Error:", error);
+        if (error.code === 'auth/configuration-not-found') {
+            console.log("Firebase config not found. Switching to offline demo mode.");
+            setIsMockMode(true);
+            const mockUser = MOCK_USERS.find(u => u.email === email);
+            if (mockUser) {
+                setUsers(MOCK_USERS);
+                setDepartments(MOCK_DEPARTMENTS);
+                setTasks(MOCK_TASKS);
+                setResources(MOCK_RESOURCES);
+                setConversations(MOCK_CONVERSATIONS);
+                setTeamChatMessages(MOCK_TEAM_CHAT_MESSAGES);
+                setNotifications(MOCK_NOTIFICATIONS.filter(n => n.userId === mockUser.id));
+                setCurrentUser(mockUser);
+                setAppState('app');
+                setIsLoading(false); // Ensure loading is off
+                return { success: true, message: 'Switched to offline demo mode.' };
             }
-            return [...prevTasks, ...newTasks];
-        });
-    }, 60000 * 60); // Check every hour
-    return () => clearInterval(interval);
-  }, []);
-
-  // Notification generation (Due Soon & Overdue)
-  useEffect(() => {
-    if (!currentUser) return;
-    const interval = setInterval(() => {
-        const now = new Date();
-        const userTasks = tasks.filter(task => task.assigneeIds.includes(currentUser.id) && task.status !== Status.Done);
-        
-        const newNotifications: Notification[] = [];
-        
-        // Due Soon
-        const twentyFourHours = 24 * 60 * 60 * 1000;
-        const upcomingTasks = userTasks.filter(task => {
-            const dueDate = new Date(task.dueDate).getTime();
-            return dueDate > now.getTime() && dueDate <= (now.getTime() + twentyFourHours);
-        });
-        upcomingTasks.forEach(task => {
-            const notificationId = `notif-due-${task.id}`;
-            if (!notifications.some(n => n.id === notificationId)) {
-                newNotifications.push({
-                    id: notificationId, userId: currentUser.id, message: `Task "${task.title}" is due soon.`,
-                    isRead: false, createdAt: new Date().toISOString(),
-                    link: { type: 'task', id: task.id }
-                });
-            }
-        });
-
-        // Overdue
-        const overdueTasks = userTasks.filter(task => new Date(task.dueDate) < now);
-        overdueTasks.forEach(task => {
-            const notificationId = `notif-overdue-${task.id}`;
-            if (!notifications.some(n => n.id === notificationId)) {
-                 newNotifications.push({
-                    id: notificationId, userId: currentUser.id, message: `Task "${task.title}" is overdue.`,
-                    isRead: false, createdAt: new Date().toISOString(),
-                    link: { type: 'task', id: task.id }
-                });
-            }
-        });
-
-        if (newNotifications.length > 0) {
-            setNotifications(prev => [...prev, ...newNotifications]);
         }
-    }, 30000); // Check every 30 seconds
-
-    return () => clearInterval(interval);
-
-  }, [currentUser, tasks, notifications]);
-
-  const handleLogin = useCallback((phone: string, password: string): boolean => {
-    const user = users.find(u => u.phone === phone && u.password === password);
-    if (user) {
-      setCurrentUser(user);
-      setIsLoggedIn(true);
-      setAppState('app');
-      localStorage.setItem('currentUser', JSON.stringify(user));
-      if (user.forcePasswordChange) {
-        setShowPasswordChange(true);
-      } else {
-        setCurrentView('dashboard');
-      }
-      return true;
+        if (error.code === 'auth/invalid-credential') {
+             return { success: false, message: 'Invalid email or password. Please try again.' };
+        }
+        return { success: false, message: 'An unexpected error occurred during login.' };
     }
-    return false;
-  }, [users]);
+  }, []);
 
-  const handleLogout = useCallback(() => {
-    setIsLoggedIn(false);
-    setCurrentUser(null);
-    setShowPasswordChange(false);
-    setIsChatbotOpen(false);
-    setChatHistory([]);
-    localStorage.removeItem('currentUser');
-    setAppState('landing');
-  }, []);
+  const handleLogout = useCallback(async () => {
+    if (isMockMode) {
+        setIsMockMode(false);
+        setCurrentUser(null);
+        setAppState('landing');
+    } else {
+        try {
+            await signOut(auth);
+            setIsChatbotOpen(false);
+            setChatHistory([]);
+        } catch (error) {
+            console.error("Logout Error:", error);
+        }
+    }
+  }, [isMockMode]);
   
-  const handlePasswordChanged = useCallback((userId: string, newPassword: string) => {
-      let updatedUserObject: User | null = null;
-      setUsers(prevUsers => prevUsers.map(u => {
-          if (u.id === userId) {
-            updatedUserObject = { ...u, password: newPassword, forcePasswordChange: false };
-            return updatedUserObject;
-          }
-          return u;
-      }));
-      
-      if (updatedUserObject) {
-        setCurrentUser(updatedUserObject);
-        localStorage.setItem('currentUser', JSON.stringify(updatedUserObject));
-      }
-      
-      setShowPasswordChange(false);
-      setCurrentView('dashboard');
-  }, []);
+  const handlePasswordChanged = useCallback(async (userId: string, newPassword: string) => {
+    if (isMockMode) {
+        const updatedUser = { ...currentUser!, forcePasswordChange: false };
+        setCurrentUser(updatedUser);
+        setUsers(prev => prev.map(u => u.id === userId ? updatedUser : u));
+        setShowPasswordChange(false);
+        setCurrentView('dashboard');
+        return;
+    }
+
+    const user = auth.currentUser;
+    if (user) {
+        try {
+            await updatePassword(user, newPassword);
+            const userDocRef = doc(db, 'users', userId);
+            await updateDoc(userDocRef, { forcePasswordChange: false });
+            setShowPasswordChange(false);
+            setCurrentView('dashboard');
+        } catch (error) {
+            console.error("Password Update Error:", error);
+        }
+    }
+  }, [isMockMode, currentUser]);
 
   const navigateTo = useCallback((view: View) => {
     setCurrentView(view);
   }, []);
   
-  const handleUpdateTask = (updatedTask: Task) => {
-      setTasks(prevTasks => {
-          const newTasks = [...prevTasks];
-          const taskIndex = newTasks.findIndex(t => t.id === updatedTask.id);
-          if (taskIndex === -1) return prevTasks;
+  const handleUpdateTask = async (updatedTask: Task) => {
+      if (!currentUser) return;
+      if (isMockMode) {
+          setTasks(prev => prev.map(t => t.id === updatedTask.id ? { ...updatedTask, updatedAt: new Date().toISOString() } : t));
+          return;
+      }
+      const { id, ...taskData } = updatedTask;
+      const taskDocRef = doc(db, 'tasks', id);
 
-          const originalTask = newTasks[taskIndex];
-          const taskWithTimestamp = { ...updatedTask, updatedAt: new Date().toISOString() };
-          newTasks[taskIndex] = taskWithTimestamp;
+      const originalTask = tasks.find(t => t.id === id);
+      if (!originalTask) return;
 
-          // --- Notification Logic ---
-          if (!currentUser) return newTasks;
-          const newNotifications: Notification[] = [];
-          const link = { type: 'task' as const, id: taskWithTimestamp.id };
+      const taskWithTimestamp = { 
+        ...taskData, 
+        updatedAt: serverTimestamp(),
+        dueDate: Timestamp.fromDate(new Date(taskData.dueDate)),
+        startDate: Timestamp.fromDate(new Date(taskData.startDate)),
+      };
+      
+      await updateDoc(taskDocRef, taskWithTimestamp);
 
-          // 1. Status Change Notification
-          if (originalTask.status !== taskWithTimestamp.status) {
-              const message = `Task "${taskWithTimestamp.title}" status: ${taskWithTimestamp.status}.`;
-              const recipients = new Set([taskWithTimestamp.reporterId, ...taskWithTimestamp.assigneeIds]);
-              recipients.delete(currentUser.id);
-              recipients.forEach(userId => {
-                  newNotifications.push({
-                      id: `notif-status-${taskWithTimestamp.id}-${userId}-${Date.now()}`,
-                      userId: userId, message, isRead: false, createdAt: new Date().toISOString(), link
-                  });
-              });
+      const newNotifications: Omit<Notification, 'id'>[] = [];
+      const link = { type: 'task' as const, id: id };
+
+      if (originalTask.status !== updatedTask.status) {
+          const message = `Task "${updatedTask.title}" status: ${updatedTask.status}.`;
+          const recipients = new Set([updatedTask.reporterId, ...updatedTask.assigneeIds]);
+          recipients.delete(currentUser.id);
+          recipients.forEach(userId => {
+              newNotifications.push({ userId, message, isRead: false, createdAt: new Date().toISOString(), link });
+          });
+      }
+      
+      const originalCommentCount = originalTask.comments?.length || 0;
+      const updatedCommentCount = updatedTask.comments?.length || 0;
+      if (updatedCommentCount > originalCommentCount) {
+          const newComment = updatedTask.comments![updatedCommentCount - 1];
+          if (newComment.userId === currentUser.id && newComment.type === 'user') {
+               const message = `${currentUser.name} commented on "${updatedTask.title}".`;
+               const recipients = new Set([updatedTask.reporterId, ...updatedTask.assigneeIds]);
+               recipients.delete(currentUser.id);
+               recipients.forEach(userId => {
+                   newNotifications.push({ userId, message, isRead: false, createdAt: new Date().toISOString(), link });
+               });
           }
+      }
 
-          // 2. New Comment Notification
-          const originalCommentCount = originalTask.comments?.length || 0;
-          const updatedCommentCount = taskWithTimestamp.comments?.length || 0;
-          if (updatedCommentCount > originalCommentCount) {
-              const newComment = taskWithTimestamp.comments![updatedCommentCount - 1];
-              if (newComment.userId === currentUser.id && newComment.type === 'user') {
-                   const message = `${currentUser.name} commented on "${taskWithTimestamp.title}".`;
-                   const recipients = new Set([taskWithTimestamp.reporterId, ...taskWithTimestamp.assigneeIds]);
-                   recipients.delete(currentUser.id);
-                   recipients.forEach(userId => {
-                       newNotifications.push({
-                           id: `notif-comment-${taskWithTimestamp.id}-${userId}-${Date.now()}`,
-                           userId: userId, message, isRead: false, createdAt: new Date().toISOString(), link
-                       });
-                   });
-              }
-          }
-
-          if (newNotifications.length > 0) {
-              setNotifications(prev => [...prev, ...newNotifications]);
-          }
-          // --- End Notification Logic ---
-          
-          return newTasks;
-      });
+      if (newNotifications.length > 0) {
+          const batch = writeBatch(db);
+          newNotifications.forEach(notif => {
+              const notifRef = doc(collection(db, 'notifications'));
+              batch.set(notifRef, notif);
+          });
+          await batch.commit();
+      }
   };
   
-  const handleCreateTask = (newTask: Omit<Task, 'id' | 'reporterId' | 'viewedBy'>) => {
+  const handleCreateTask = async (newTask: Omit<Task, 'id' | 'reporterId' | 'viewedBy'>) => {
       if(!currentUser) return;
-      const taskWithId: Task = {
+      if (isMockMode) {
+          const mockNewTask: Task = {
+              ...newTask,
+              id: `task-${Date.now()}`,
+              reporterId: currentUser.id,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              viewedBy: [],
+              status: Status.ToDo,
+          };
+          setTasks(prev => [mockNewTask, ...prev]);
+          return;
+      }
+      const taskWithMetadata = {
           ...newTask,
-          id: `task-${Date.now()}`,
           reporterId: currentUser.id,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
           viewedBy: [],
           status: Status.ToDo,
+          dueDate: Timestamp.fromDate(new Date(newTask.dueDate)),
+          startDate: Timestamp.fromDate(new Date(newTask.startDate)),
       };
+      
+      const docRef = await addDoc(collection(db, 'tasks'), taskWithMetadata);
 
-      setTasks(prev => [...prev, taskWithId]);
-
-      const newNotifications: Notification[] = newTask.assigneeIds.map(userId => ({
-        id: `notif-assign-${taskWithId.id}-${userId}`,
-        userId: userId,
-        message: `You've been assigned a new task: "${taskWithId.title}"`,
+      const newNotifications = newTask.assigneeIds.map(userId => ({
+        userId,
+        message: `You've been assigned a new task: "${newTask.title}"`,
         isRead: false,
         createdAt: new Date().toISOString(),
-        link: { type: 'task', id: taskWithId.id }
+        link: { type: 'task' as const, id: docRef.id }
       }));
-      setNotifications(prev => [...prev, ...newNotifications]);
+      
+      const batch = writeBatch(db);
+      newNotifications.forEach(notif => {
+          const notifRef = doc(collection(db, 'notifications'));
+          batch.set(notifRef, notif);
+      });
+      await batch.commit();
   };
   
-  const handleReactivateTask = (taskId: string, reason: string, newDueDate: string) => {
-      setTasks(prevTasks => prevTasks.map(task => 
-          task.id === taskId 
-          ? { ...task, status: Status.ToDo, completedAt: undefined, dueDate: newDueDate, viewedBy: [], comments: [...(task.comments || []), {id: `comment-${Date.now()}`, userId: currentUser?.id || '', content: `Reactivated: ${reason}`, createdAt: new Date().toISOString()}] } 
-          : task
-      ));
+  const handleReactivateTask = async (taskId: string, reason: string, newDueDate: string) => {
+      if (isMockMode) {
+          setTasks(prev => prev.map(t => t.id === taskId ? {
+              ...t,
+              status: Status.ToDo,
+              completedAt: undefined,
+              dueDate: newDueDate,
+              viewedBy: [],
+              comments: [...(t.comments || []), {id: `comment-${Date.now()}`, userId: currentUser?.id || '', content: `Reactivated: ${reason}`, createdAt: new Date().toISOString()}]
+          } : t));
+          return;
+      }
+      const taskDocRef = doc(db, 'tasks', taskId);
+      const originalTask = tasks.find(t => t.id === taskId);
+      if (!originalTask) return;
+      
+      await updateDoc(taskDocRef, {
+          status: Status.ToDo,
+          completedAt: undefined,
+          dueDate: Timestamp.fromDate(new Date(newDueDate)),
+          viewedBy: [],
+          comments: [...(originalTask.comments || []), {id: `comment-${Date.now()}`, userId: currentUser?.id || '', content: `Reactivated: ${reason}`, createdAt: new Date().toISOString()}]
+      });
   };
 
-  const handleTaskReadByAssignee = (task: Task) => {
-    if (!currentUser || !task.assigneeIds.includes(currentUser.id) || task.viewedBy.includes(currentUser.id)) {
+  const handleTaskReadByAssignee = async (task: Task) => {
+    if (!currentUser || !task.assigneeIds.includes(currentUser.id) || task.viewedBy.includes(currentUser.id)) return;
+    if (isMockMode) {
+        setTasks(prev => prev.map(t => t.id === task.id ? { ...t, viewedBy: [...t.viewedBy, currentUser.id], status: Status.Pending } : t));
         return;
     }
-
-    const updatedTask: Task = {
-        ...task,
+    const taskDocRef = doc(db, 'tasks', task.id);
+    await updateDoc(taskDocRef, {
         viewedBy: [...task.viewedBy, currentUser.id],
-        status: Status.Pending, // Automatically change status to Pending
-    };
-    handleUpdateTask(updatedTask);
-
-    // Mark assignment notification as read
-    const notificationId = `notif-assign-${task.id}-${currentUser.id}`;
-    setNotifications(prev => prev.map(n => n.id === notificationId ? { ...n, isRead: true } : n));
+        status: Status.Pending,
+    });
   };
   
-  const handleUserUpdate = (updatedUser: User) => {
-    setUsers(users.map(u => u.id === updatedUser.id ? updatedUser : u));
-    if (currentUser?.id === updatedUser.id) {
-        setCurrentUser(updatedUser);
-        localStorage.setItem('currentUser', JSON.stringify(updatedUser));
+  const handleUserUpdate = async (updatedUser: User) => {
+    if (isMockMode) {
+        setUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
+        if (currentUser?.id === updatedUser.id) {
+            setCurrentUser(updatedUser);
+        }
+        return;
     }
+    const { id, ...userData } = updatedUser;
+    const userDocRef = doc(db, 'users', id);
+    await updateDoc(userDocRef, userData);
   };
-
-  const handleCreateOrUpdateResource = (resource: CompanyResource | Omit<CompanyResource, 'id'>) => {
+  
+  const handleCreateOrUpdateResource = async (resource: CompanyResource | Omit<CompanyResource, 'id'>) => {
+    if (isMockMode) {
+        if ('id' in resource) {
+            setResources(prev => prev.map(r => r.id === resource.id ? resource : r));
+        } else {
+            setResources(prev => [{ ...resource, id: `res-${Date.now()}` }, ...prev]);
+        }
+        return;
+    }
     if ('id' in resource) {
-        setResources(prev => prev.map(r => r.id === resource.id ? resource as CompanyResource : r));
+        const { id, ...resourceData } = resource;
+        await updateDoc(doc(db, 'resources', id), resourceData);
     } else {
-        const newResource: CompanyResource = {
-            ...(resource as Omit<CompanyResource, 'id'>),
-            id: `res-${Date.now()}`,
-        };
-        setResources(prev => [...prev, newResource]);
+        await addDoc(collection(db, 'resources'), resource);
     }
   };
 
-  const handleDeleteResource = (resourceId: string) => {
-      setResources(prev => prev.filter(r => r.id !== resourceId));
+  const handleDeleteResource = async (resourceId: string) => {
+      if (isMockMode) {
+          setResources(prev => prev.filter(r => r.id !== resourceId));
+          return;
+      }
+      await deleteDoc(doc(db, 'resources', resourceId));
   };
 
-  const handleMarkNotificationsAsRead = () => {
-      setNotifications(prev => prev.map(n => ({...n, isRead: true})));
+  const handleMarkNotificationsAsRead = async () => {
+      if (isMockMode) {
+          setNotifications(prev => prev.map(n => ({...n, isRead: true})));
+          return;
+      }
+      const batch = writeBatch(db);
+      notifications.filter(n => !n.isRead).forEach(n => {
+          const notifRef = doc(db, 'notifications', n.id);
+          batch.update(notifRef, { isRead: true });
+      });
+      await batch.commit();
   }
 
   const handleUpdateRolePermissions = (updatedRolePermissions: RolePermission[]) => {
@@ -520,40 +482,69 @@ const App: React.FC = () => {
     setLogoUrl(url);
   };
   
-  const handleSendTeamMessage = (conversationId: string, content: string) => {
+  const handleSendTeamMessage = async (conversationId: string, content: string) => {
     if (!currentUser) return;
-    const newMessage: TeamChatMessage = {
-      id: `msg-${Date.now()}`,
+    if (isMockMode) {
+        const newMessage: TeamChatMessage = {
+            id: `msg-${Date.now()}`,
+            conversationId,
+            senderId: currentUser.id,
+            content,
+            createdAt: new Date().toISOString(),
+        };
+        setTeamChatMessages(prev => [...prev, newMessage]);
+        setConversations(prev => prev.map(c => c.id === conversationId ? {...c, lastMessageAt: new Date().toISOString()} : c));
+        return;
+    }
+    const newMessage: Omit<TeamChatMessage, 'id'> = {
       conversationId,
       senderId: currentUser.id,
       content,
-      createdAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(), // This will be converted to server timestamp
     };
-    setTeamChatMessages(prev => [...prev, newMessage]);
-    setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, lastMessageAt: new Date().toISOString() } : c));
-
+    
+    await addDoc(collection(db, 'teamChatMessages'), { ...newMessage, createdAt: serverTimestamp() });
+    await updateDoc(doc(db, 'conversations', conversationId), { lastMessageAt: serverTimestamp() });
+    
     // Create notifications for other participants
     const conversation = conversations.find(c => c.id === conversationId);
     if (conversation) {
         const convoName = getConversationDetails(conversation, currentUser, users).name;
-        const newNotifications: Notification[] = conversation.participantIds
-            .filter(id => id !== currentUser.id) // Don't notify the sender
+        const newNotifications = conversation.participantIds
+            .filter(id => id !== currentUser.id)
             .map(userId => ({
-                id: `notif-chat-${newMessage.id}-${userId}`,
                 userId,
                 message: `New message from ${currentUser.name} in "${convoName}"`,
                 isRead: false,
                 createdAt: new Date().toISOString(),
-                link: { type: 'chat', id: conversationId }
+                link: { type: 'chat' as const, id: conversationId }
             }));
-        setNotifications(prev => [...prev, ...newNotifications]);
+        
+        const batch = writeBatch(db);
+        newNotifications.forEach(notif => {
+            const notifRef = doc(collection(db, 'notifications'));
+            batch.set(notifRef, notif);
+        });
+        await batch.commit();
     }
   };
 
-  const handleCreateConversation = (participantIds: string[], groupName?: string) => {
+  const handleCreateConversation = async (participantIds: string[], groupName?: string): Promise<string | undefined> => {
     if (!currentUser) return;
-
-    // Check if a DM with the same single participant already exists
+    if (isMockMode) {
+        const newConvoId = `convo-${Date.now()}`;
+        const newConversation: Conversation = {
+            id: newConvoId,
+            type: participantIds.length > 1 ? ConversationType.GROUP : ConversationType.DM,
+            participantIds: [...participantIds, currentUser.id],
+            name: groupName,
+            groupAvatar: participantIds.length > 1 ? `https://picsum.photos/seed/group-${Date.now()}/100` : undefined,
+            lastMessageAt: new Date().toISOString(),
+        };
+        setConversations(prev => [newConversation, ...prev]);
+        return newConvoId;
+    }
+    
     if (participantIds.length === 1) {
       const otherUserId = participantIds[0];
       const existing = conversations.find(c => 
@@ -562,50 +553,43 @@ const App: React.FC = () => {
         c.participantIds.includes(currentUser.id) &&
         c.participantIds.includes(otherUserId)
       );
-      if (existing) {
-        // A conversation already exists, we can perhaps switch to it.
-        // For now, we just prevent creating a duplicate.
-        // The ChatView component will handle switching.
-        return existing.id;
-      }
+      if (existing) return existing.id;
     }
     
-    const newConversation: Conversation = {
-      id: `convo-${Date.now()}`,
+    const newConversationData = {
       type: participantIds.length > 1 ? ConversationType.GROUP : ConversationType.DM,
       participantIds: [...participantIds, currentUser.id],
       name: groupName,
       groupAvatar: participantIds.length > 1 ? `https://picsum.photos/seed/group-${Date.now()}/100` : undefined,
-      lastMessageAt: new Date().toISOString(),
+      lastMessageAt: serverTimestamp(),
     };
     
-    setConversations(prev => [newConversation, ...prev]);
-    return newConversation.id;
+    const docRef = await addDoc(collection(db, 'conversations'), newConversationData);
+    return docRef.id;
   };
   
   const removeToast = (toastId: string) => {
     setToasts(prev => prev.filter(t => t.id !== toastId));
   };
   
-  const handleNotificationClick = (notification: Notification) => {
+  const handleNotificationClick = async (notification: Notification) => {
     if (notification.link) {
-        if (notification.link.type === 'chat') {
-            navigateTo('chat');
-        } else if (notification.link.type === 'task') {
-            navigateTo('tasks');
-        }
+        if (notification.link.type === 'chat') navigateTo('chat');
+        else if (notification.link.type === 'task') navigateTo('tasks');
     }
-    // Mark as read
-    setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, isRead: true } : n));
-    // Remove the toast
+    if (isMockMode) {
+        setNotifications(prev => prev.map(n => n.id === notification.id ? {...n, isRead: true} : n));
+    } else {
+        await updateDoc(doc(db, 'notifications', notification.id), { isRead: true });
+    }
     removeToast(notification.id);
   };
-
+  
   if (window.location.hash === '#/install') {
     return <Installer />;
   }
 
-  if (isLoading) {
+  if (isLoading && !isMockMode) {
     return (
         <div className="min-h-screen flex items-center justify-center bg-base-200 dark:bg-dark-base-100">
             <div className="w-16 h-16 border-4 border-brand-primary border-t-transparent rounded-full animate-spin"></div>
@@ -630,7 +614,7 @@ const App: React.FC = () => {
         content = <ChatView currentUser={currentUser} users={users} conversations={conversations} messages={teamChatMessages} onSendMessage={handleSendTeamMessage} onCreateConversation={handleCreateConversation} />;
         break;
       case 'organization':
-        content = <Organization departments={departments} users={users} setUsers={setUsers} setDepartments={setDepartments} currentUser={currentUser} rolePermissions={rolePermissions} onUpdateRolePermissions={handleUpdateRolePermissions} />;
+        content = <Organization departments={departments} users={users} setUsers={() => {}} setDepartments={() => {}} currentUser={currentUser} rolePermissions={rolePermissions} onUpdateRolePermissions={handleUpdateRolePermissions} />;
         break;
       case 'resources':
         content = <Resources currentUser={currentUser} resources={resources} onSave={handleCreateOrUpdateResource} onDelete={handleDeleteResource} rolePermissions={rolePermissions} />;
@@ -652,8 +636,13 @@ const App: React.FC = () => {
     return <LandingPage onShowLogin={() => setAppState('login')} appName={appName} />;
   }
   
-  if (appState === 'login' || !isLoggedIn || !currentUser) {
-    return <Login onLogin={handleLogin} appName={appName} logoUrl={logoUrl} />;
+  if (appState === 'login') {
+    return <Login onLogin={handleLogin} />;
+  }
+
+  if (!currentUser) {
+    // This case should ideally not be hit if logic is correct, but as a fallback:
+    return <Login onLogin={handleLogin} />;
   }
 
   if (showPasswordChange) {
