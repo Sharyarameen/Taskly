@@ -91,18 +91,11 @@ const Reports: React.FC<ReportsProps> = ({ tasks, users, departments }) => {
         const totalCompleted = performance.reduce((sum, p) => sum + p.completedCount, 0);
         const overallOnTimeCount = filteredTasks.filter(t => t.status === Status.Done && t.completedAt && new Date(t.completedAt) <= new Date(t.dueDate)).length;
         const overallOnTimeRate = totalCompleted > 0 ? ((overallOnTimeCount / totalCompleted) * 100).toFixed(0) + '%' : 'N/A';
-        
-        const totalCompletionTimeAcrossUsers = performance.reduce((acc, p) => {
-            if (p.avgCompletionTime !== 'N/A') {
-                return acc + (p.avgTimeMs * p.completedCount);
-            }
-            return acc;
-        }, 0);
-        const overallAvgTimeMs = totalCompleted > 0 ? totalCompletionTimeAcrossUsers / totalCompleted : 0;
-        
-        const totalDays = Math.floor(overallAvgTimeMs / (1000 * 60 * 60 * 24));
-        const totalHours = Math.floor((overallAvgTimeMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-        const overallAvgCompletion = overallAvgTimeMs > 0 ? `${totalDays}d ${totalHours}h` : 'N/A';
+        // FIX: `avgTimeMs` was out of scope. It has been added to the `performance` object and is now accessed via `p.avgTimeMs`.
+        const totalAvgTimeMs = performance.reduce((acc, p) => acc + (p.avgCompletionTime !== 'N/A' ? p.completedCount : 0), 0) > 0 ? performance.reduce((acc, p) => acc + (p.avgCompletionTime !== 'N/A' ? p.avgTimeMs : 0), 0) / performance.filter(p => p.avgCompletionTime !== 'N/A').length : 0;
+        const totalDays = Math.floor(totalAvgTimeMs / (1000 * 60 * 60 * 24));
+        const totalHours = Math.floor((totalAvgTimeMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+        const overallAvgCompletion = totalAvgTimeMs > 0 ? `${totalDays}d ${totalHours}h` : 'N/A';
 
 
         return {

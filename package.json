@@ -11,8 +11,7 @@
   "dependencies": {
     "react-dom": "^19.2.0",
     "react": "^19.2.0",
-    "@google/genai": "0.15.0",
-    "firebase": "^12.5.0"
+    "@google/genai": "0.15.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
