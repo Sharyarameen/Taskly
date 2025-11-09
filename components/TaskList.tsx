@@ -181,7 +181,6 @@ const TaskList: React.FC<TaskListProps> = ({ currentUser, tasks, users, onUpdate
                                         <div className="flex items-center">
                                             {isUnread && <span className="w-2.5 h-2.5 bg-blue-500 rounded-full mr-2 flex-shrink-0" title="New task"></span>}
                                             {task.attachments && task.attachments.length > 0 && <PaperClipIcon className="w-4 h-4 mr-2 text-base-content-secondary flex-shrink-0" />}
-                                            {/* FIX: The `title` prop is not valid for the SVG component. Wrap it in a span to provide a tooltip. */}
                                             {isBlockedByDependencies && <span title="This task is blocked by another task."><LinkIcon className="w-4 h-4 mr-2 text-orange-500 flex-shrink-0" /></span>}
                                             <div className="text-sm font-medium text-base-content dark:text-dark-base-content">{task.title}</div>
                                         </div>

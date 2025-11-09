@@ -1,26 +1,34 @@
 import React, { useState } from 'react';
 import { LogoIcon } from './icons/LogoIcon';
 import { CheckCircleIcon } from './icons/OutlineIcons';
+import { MOCK_USERS, MOCK_DEPARTMENTS, MOCK_TASKS, MOCK_RESOURCES, MOCK_ROLE_PERMISSIONS, MOCK_CONVERSATIONS, MOCK_TEAM_CHAT_MESSAGES } from '../constants';
 
 const Installer = () => {
   const [step, setStep] = useState<'welcome' | 'installing' | 'complete'>('welcome');
   const [log, setLog] = useState<string[]>([]);
 
-  const installationSteps = [
-    { message: 'Connecting to database...', delay: 500 },
-    { message: 'Creating `users` table...', delay: 800 },
-    { message: 'Creating `departments` table...', delay: 800 },
-    { message: 'Creating `tasks` table...', delay: 800 },
-    { message: 'Creating `resources` table...', delay: 800 },
-    { message: 'Seeding initial admin user...', delay: 1000 },
-    { message: 'Finalizing installation...', delay: 1200 },
-  ];
-
   const startInstallation = async () => {
     setStep('installing');
     let currentLog: string[] = [];
+
+    const installationSteps = [
+      { message: 'Connecting to client-side database...', delay: 500, action: () => {} },
+      { message: 'Storing `users`...', delay: 400, action: () => localStorage.setItem('smashx_users', JSON.stringify(MOCK_USERS)) },
+      { message: 'Storing `departments`...', delay: 400, action: () => localStorage.setItem('smashx_departments', JSON.stringify(MOCK_DEPARTMENTS)) },
+      { message: 'Storing `tasks`...', delay: 400, action: () => localStorage.setItem('smashx_tasks', JSON.stringify(MOCK_TASKS)) },
+      { message: 'Storing `resources`...', delay: 400, action: () => localStorage.setItem('smashx_resources', JSON.stringify(MOCK_RESOURCES)) },
+      { message: 'Storing `permissions`...', delay: 400, action: () => localStorage.setItem('smashx_role_permissions', JSON.stringify(MOCK_ROLE_PERMISSIONS)) },
+      { message: 'Storing `conversations`...', delay: 400, action: () => localStorage.setItem('smashx_conversations', JSON.stringify(MOCK_CONVERSATIONS)) },
+      { message: 'Storing `messages`...', delay: 400, action: () => localStorage.setItem('smashx_team_chat_messages', JSON.stringify(MOCK_TEAM_CHAT_MESSAGES)) },
+      { message: 'Initializing `notifications`...', delay: 400, action: () => localStorage.setItem('smashx_notifications', JSON.stringify([])) },
+      { message: 'Setting default app name...', delay: 300, action: () => localStorage.setItem('smashx_appName', JSON.stringify('Zenith Task Manager')) },
+      { message: 'Setting default logo...', delay: 300, action: () => localStorage.setItem('smashx_logoUrl', JSON.stringify('')) },
+      { message: 'Finalizing installation...', delay: 1000, action: () => localStorage.setItem('smashx_installed', 'true') },
+    ];
+
     for (const installStep of installationSteps) {
       await new Promise(resolve => setTimeout(resolve, installStep.delay));
+      installStep.action();
       currentLog = [...currentLog, `[SUCCESS] ${installStep.message}`];
       setLog(currentLog);
     }
@@ -28,7 +36,7 @@ const Installer = () => {
   };
 
   const goToLogin = () => {
-    window.location.pathname = '/';
+    window.location.href = '/';
   };
 
   const renderContent = () => {

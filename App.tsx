@@ -24,6 +24,32 @@ export interface ChatMessage {
   parts: { text: string }[];
 }
 
+// --- useLocalStorage Hook ---
+function useLocalStorage<T>(key: string, initialValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
+    const [storedValue, setStoredValue] = useState<T>(() => {
+        try {
+            const item = window.localStorage.getItem(key);
+            return item ? JSON.parse(item) : initialValue;
+        } catch (error) {
+            console.log(error);
+            return initialValue;
+        }
+    });
+
+    const setValue = (value: T | ((val: T) => T)) => {
+        try {
+            const valueToStore = value instanceof Function ? value(storedValue) : value;
+            setStoredValue(valueToStore);
+            window.localStorage.setItem(key, JSON.stringify(valueToStore));
+        } catch (error) {
+            console.log(error);
+        }
+    };
+
+    return [storedValue, setValue];
+}
+
+
 const getConversationDetails = (convo: Conversation, currentUser: User, users: User[]) => {
     const userMap = new Map(users.map(u => [u.id, u]));
     if (convo.type === ConversationType.GROUP) {
@@ -35,33 +61,49 @@ const getConversationDetails = (convo: Conversation, currentUser: User, users: U
 };
 
 const App: React.FC = () => {
+  const isInstalled = localStorage.getItem('smashx_installed') === 'true';
+
+  if (!isInstalled) {
+      if (window.location.hash !== '#/install') {
+          window.location.hash = '#/install';
+      }
+      // Render only the installer if the app is not installed.
+      return <Installer />;
+  }
+  
+  // If installed, but hash is still there, remove it.
+  if (isInstalled && window.location.hash === '#/install') {
+      window.location.hash = '';
+  }
+
+  // Main application logic is wrapped in a component to allow hooks
+  return <TaskManagerApp />;
+}
+
+const TaskManagerApp: React.FC = () => {
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [showPasswordChange, setShowPasswordChange] = useState(false);
   const [appState, setAppState] = useState<'landing' | 'login' | 'app'>('landing');
 
-
-  const [users, setUsers] = useState<User[]>(MOCK_USERS);
-  const [departments, setDepartments] = useState<Department[]>(MOCK_DEPARTMENTS);
-  const [tasks, setTasks] = useState<Task[]>(MOCK_TASKS);
-  const [resources, setResources] = useState<CompanyResource[]>(MOCK_RESOURCES);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [rolePermissions, setRolePermissions] = useState<RolePermission[]>(MOCK_ROLE_PERMISSIONS);
-  const [conversations, setConversations] = useState<Conversation[]>(MOCK_CONVERSATIONS);
-  const [teamChatMessages, setTeamChatMessages] = useState<TeamChatMessage[]>(MOCK_TEAM_CHAT_MESSAGES);
+  // Persisted State
+  const [users, setUsers] = useLocalStorage<User[]>('smashx_users', MOCK_USERS);
+  const [departments, setDepartments] = useLocalStorage<Department[]>('smashx_departments', MOCK_DEPARTMENTS);
+  const [tasks, setTasks] = useLocalStorage<Task[]>('smashx_tasks', MOCK_TASKS);
+  const [resources, setResources] = useLocalStorage<CompanyResource[]>('smashx_resources', MOCK_RESOURCES);
+  const [notifications, setNotifications] = useLocalStorage<Notification[]>('smashx_notifications', []);
+  const [rolePermissions, setRolePermissions] = useLocalStorage<RolePermission[]>('smashx_role_permissions', MOCK_ROLE_PERMISSIONS);
+  const [conversations, setConversations] = useLocalStorage<Conversation[]>('smashx_conversations', MOCK_CONVERSATIONS);
+  const [teamChatMessages, setTeamChatMessages] = useLocalStorage<TeamChatMessage[]>('smashx_team_chat_messages', MOCK_TEAM_CHAT_MESSAGES);
+  const [appName, setAppName] = useLocalStorage('smashx_appName', 'Zenith Task Manager');
+  const [logoUrl, setLogoUrl] = useLocalStorage('smashx_logoUrl', '');
   
-  // App Customization State
-  const [appName, setAppName] = useState('Zenith Task Manager');
-  const [logoUrl, setLogoUrl] = useState('');
-
-  // Chatbot State
+  // Transient State
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [isChatbotOpen, setIsChatbotOpen] = useState(false);
   const [isBotTyping, setIsBotTyping] = useState(false);
   const [chat, setChat] = useState<Chat | null>(null);
-  
-  // Toast Notification State
   const [toasts, setToasts] = useState<Notification[]>([]);
   const displayedToastIds = useRef(new Set());
 
@@ -71,7 +113,6 @@ const App: React.FC = () => {
   
   useEffect(() => {
     if (!currentUser) return;
-    // Filter for new, unread notifications for the current user that haven't been displayed as toasts yet
     const newUnread = notifications.filter(n => 
         n.userId === currentUser.id && 
         !n.isRead && 
@@ -79,9 +120,7 @@ const App: React.FC = () => {
     );
 
     if (newUnread.length > 0) {
-        // Add new notifications to the toast queue
         setToasts(prev => [...prev, ...newUnread]);
-        // Mark these notifications as displayed to prevent re-adding them
         newUnread.forEach(n => displayedToastIds.current.add(n.id));
     }
   }, [notifications, currentUser]);
@@ -131,7 +170,7 @@ const App: React.FC = () => {
         }, 2000); // Send after 2 seconds
       }
     }
-  }, [conversations, tasks]);
+  }, [conversations, tasks, setConversations, setTeamChatMessages]);
 
   const handleSendMessageToBot = async (message: string) => {
     if (!chat) return;
@@ -244,7 +283,7 @@ const App: React.FC = () => {
         });
     }, 60000 * 60); // Check every hour
     return () => clearInterval(interval);
-  }, []);
+  }, [setTasks, setNotifications]);
 
   // Notification generation (Due Soon & Overdue)
   useEffect(() => {
@@ -292,7 +331,7 @@ const App: React.FC = () => {
 
     return () => clearInterval(interval);
 
-  }, [currentUser, tasks, notifications]);
+  }, [currentUser, tasks, notifications, setNotifications]);
 
   const handleLogin = useCallback((phone: string, password: string): boolean => {
     const user = users.find(u => u.phone === phone && u.password === password);
@@ -328,7 +367,7 @@ const App: React.FC = () => {
       setCurrentUser(prevUser => prevUser ? { ...prevUser, password: newPassword, forcePasswordChange: false } : null);
       setShowPasswordChange(false);
       setCurrentView('dashboard');
-  }, []);
+  }, [setUsers]);
 
   const navigateTo = useCallback((view: View) => {
     setCurrentView(view);
@@ -555,11 +594,6 @@ const App: React.FC = () => {
     // Remove the toast
     removeToast(notification.id);
   };
-
-  if (window.location.hash === '#/install') {
-    return <Installer />;
-  }
-
 
   const renderContent = () => {
     if (!currentUser) return null;
