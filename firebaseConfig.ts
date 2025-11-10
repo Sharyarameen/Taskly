@@ -6,7 +6,7 @@ import { getAuth } from "firebase/auth";
 // This file has been corrected to remove duplicate code.
 // For the app to work, please ensure your Firestore security rules are set up correctly in the Firebase console.
 const firebaseConfig = {
-  apiKey: "AIzaSyCvzw0PIlIMG5pvuysGCssCXkoxjEJJMss",
+  apiKey: "AIzaSyDCbpdnmR-asAkr2qTR9j0HnErgDkqwkRg",
   authDomain: "taskly-3cfb8.firebaseapp.com",
   projectId: "taskly-3cfb8",
   storageBucket: "taskly-3cfb8.appspot.com",
