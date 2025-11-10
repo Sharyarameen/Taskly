@@ -1,3 +1,4 @@
+
 export enum Role {
   Administrator = 'Administrator',
   Manager = 'Manager',
@@ -5,17 +6,35 @@ export enum Role {
 }
 
 export enum Permission {
-    CanManageUsers = 'CanManageUsers',
-    CanManageDepartments = 'CanManageDepartments',
-    CanManageAllTasks = 'CanManageAllTasks',
-    CanViewReports = 'CanViewReports',
-    CanManageResources = 'CanManageResources',
-    CanManagePermissions = 'CanManagePermissions',
+  CanManageUsers = 'can-manage-users',
+  CanManageDepartments = 'can-manage-departments',
+  CanManageAllTasks = 'can-manage-all-tasks',
+  CanViewReports = 'can-view-reports',
+  CanManageResources = 'can-manage-resources',
+  CanManagePermissions = 'can-manage-permissions',
 }
 
 export interface RolePermission {
-    role: Role;
-    permissions: Permission[];
+  role: Role;
+  permissions: Permission[];
+}
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  password?: string; // Should not be passed to client, but needed for mock data
+  avatar: string;
+  role: Role;
+  departmentId: string;
+  phone: string;
+  createdAt: string;
+  forcePasswordChange: boolean;
+}
+
+export interface Department {
+  id: string;
+  name: string;
 }
 
 export enum Priority {
@@ -32,46 +51,26 @@ export enum Status {
   Done = 'Done',
 }
 
-export interface User {
-  id: string;
-  name: string;
-  phone: string;
-  password?: string; // Should not be sent to client in real app
-  email: string;
-  role: Role;
-  avatar: string;
-  departmentId: string;
-  createdAt: string;
-  forcePasswordChange?: boolean;
-}
-
-export interface Department {
-  id: string;
-  name: string;
-  managerId?: string;
-}
-
-export interface Comment {
-    id: string;
-    userId: string;
-    content: string;
-    createdAt: string;
-    type?: 'user' | 'system';
-}
-
 export interface RecurrenceRule {
     freq: 'none' | 'daily' | 'weekly' | 'monthly';
     interval: number;
-    dayOfWeek?: number; // 0 (Sun) to 6 (Sat)
-    dayOfMonth?: number; // 1 to 31
-    endDate?: string;
+    dayOfWeek?: number; // 0 for Sunday, 1 for Monday...
+    dayOfMonth?: number; // 1-31
 }
 
 export interface Attachment {
-    name: string;
-    type: string;
-    size: number;
-    url: string; // base64 data URL
+  name: string;
+  type: string;
+  size: number;
+  url: string; // base64 or a real URL
+}
+
+export interface Comment {
+  id: string;
+  userId: string;
+  content: string;
+  createdAt: string;
+  type: 'user' | 'system';
 }
 
 export interface Task {
@@ -80,65 +79,52 @@ export interface Task {
   description: string;
   reporterId: string;
   assigneeIds: string[];
+  departmentId?: string;
   priority: Priority;
   status: Status;
-  startDate: string;
   dueDate: string;
-  recurrence?: RecurrenceRule;
-  parentTaskId?: string; // For recurring instances
-  tags?: string[];
-  comments?: Comment[];
-  attachments?: Attachment[];
-  completedBy?: string[]; // List of user IDs who have completed their part
-  viewedBy: string[]; // List of user IDs who have viewed the task
   createdAt: string;
-  updatedAt: string;
   completedAt?: string;
-  departmentId: string;
-  dependsOn: string[]; // Tasks that must be completed before this one
+  attachments: Attachment[];
+  comments: Comment[];
+  viewedBy: string[];
+  completedBy?: string[];
+  dependsOn: string[];
+  recurrence?: RecurrenceRule;
+  parentTaskId?: string; // To link recurring instances to a parent template
 }
 
 export interface Notification {
   id: string;
-  userId: string;
   message: string;
   isRead: boolean;
   createdAt: string;
   link?: {
-      type: 'task' | 'chat';
-      id: string; // taskId or conversationId
+    type: 'task' | 'chat';
+    id: string;
   };
 }
 
 export interface CompanyResource {
-  id: string;
-  category: 'Company Links' | 'Social Media' | 'Shared Drives' | 'HR Documents';
-  type: 'link' | 'document';
-  title: string;
-  description: string;
-  content: string; // URL for link, Markdown for document
-}
-
-// --- New Chat Types ---
-export enum ConversationType {
-    DM = 'dm',
-    GROUP = 'group'
+    id: string;
+    title: string;
+    description: string;
+    category: 'Company Links' | 'Social Media' | 'Shared Drives' | 'HR Documents';
+    type: 'link' | 'document';
+    content: string; // URL for link, markdown for document
 }
 
 export interface Conversation {
-    id: string;
-    type: ConversationType;
-    participantIds: string[];
-    name?: string; // For groups
-    groupAvatar?: string; // For groups
-    lastMessageAt: string;
-    unreadCount?: { [userId: string]: number };
+  id: string;
+  name: string;
+  userIds: string[];
+  isGroup: boolean;
 }
 
 export interface TeamChatMessage {
-    id: string;
-    conversationId: string;
-    senderId: string; // 'user-bot' for system messages
-    content: string;
-    createdAt: string;
+  id: string;
+  userId: string;
+  conversationId: string;
+  content: string;
+  createdAt: string;
 }

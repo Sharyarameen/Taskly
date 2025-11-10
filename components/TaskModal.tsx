@@ -1,8 +1,10 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
-import { Task, User, Priority, Status, Role, Attachment, Comment, RolePermission, Permission } from '../types';
+import { Task, User, Priority, Status, Role, Attachment, Comment, RolePermission, Permission, RecurrenceRule } from '../types';
 import { XIcon, PaperClipIcon, LinkIcon, CheckCircleIcon } from './icons/OutlineIcons';
 import { SparklesIcon, TrashIcon } from './icons/SolidIcons';
-import { GoogleGenAI } from '@google/genai';
+// Fix: Import `Type` for responseSchema
+import { GoogleGenAI, Type } from '@google/genai';
 
 interface TaskModalProps {
   isOpen: boolean;
@@ -104,7 +106,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, task, allTasks, 
           if (value === 'weekly') newRecurrence.dayOfWeek = newRecurrence.dayOfWeek ?? 1;
           if (value === 'monthly') newRecurrence.dayOfMonth = newRecurrence.dayOfMonth ?? 1;
       }
-      setFormState(prev => ({ ...prev, recurrence: newRecurrence }));
+      setFormState(prev => ({ ...prev, recurrence: newRecurrence as RecurrenceRule }));
   }
   
   const handleMultiSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -261,14 +263,28 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, task, allTasks, 
     }
     setIsAiLoading(true);
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const prompt = `Based on the user's rough idea for a task title: "${formState.title}", generate a concise, professional task title and a detailed task description. Return the response as a single valid JSON object with two keys: "title" and "description". Example: {"title": "Deploy Frontend to Production", "description": "Finalize the deployment process for the new React application, ensuring all tests pass and documentation is updated."}`;
         
+        // Fix: Use responseSchema for reliable JSON output as per guidelines
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
+                responseSchema: {
+                  type: Type.OBJECT,
+                  properties: {
+                    title: {
+                      type: Type.STRING,
+                      description: 'A concise and professional task title.'
+                    },
+                    description: {
+                      type: Type.STRING,
+                      description: 'A detailed task description.'
+                    }
+                  }
+                }
             }
         });
 

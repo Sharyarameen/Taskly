@@ -36,7 +36,6 @@ const useIntersectionObserver = (options: IntersectionObserverInit) => {
     return [containerRef, isVisible] as const;
 };
 
-// FIX: Add `id` to the component's props to allow passing it to the underlying `section` element.
 const AnimatedSection: React.FC<{children: React.ReactNode, className?: string, delay?: string, id?: string}> = ({ children, className, delay, id }) => {
     const [ref, isVisible] = useIntersectionObserver({ threshold: 0.1 });
     const delayClass = delay ? `animation-delay-${delay}` : '';

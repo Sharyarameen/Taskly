@@ -163,7 +163,6 @@ const Resources: React.FC<ResourcesProps> = ({ currentUser, resources, onSave, o
           <div key={category}>
             <h2 className="text-xl font-semibold mb-4 border-b-2 border-brand-primary pb-2">{category}</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {/* FIX: Cast 'items' to CompanyResource[] as Object.entries can sometimes lose type information, causing 'items' to be inferred as 'unknown'. */}
               {(items as CompanyResource[]).map(item => (
                 <div key={item.id} className="bg-base-100 dark:bg-dark-base-200 rounded-lg shadow-md p-4 flex flex-col justify-between">
                   <div>

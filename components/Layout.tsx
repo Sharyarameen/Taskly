@@ -74,7 +74,6 @@ const Layout: React.FC<LayoutProps> = ({
           onToggle={() => setIsChatbotOpen(!isChatbotOpen)}
           messages={chatHistory}
           onSendMessage={onSendMessage}
-          // FIX: Pass the `isBotTyping` prop to the `isTyping` prop of the Chatbot component.
           isTyping={isBotTyping}
         />
     </div>

@@ -1,668 +1,297 @@
-import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-// FIX: Import Status enum to use for type safety.
-import { User, Role, Task, Department, Attachment, Status, CompanyResource, Notification, RolePermission, Permission, Conversation, TeamChatMessage, ConversationType } from './types';
-import { MOCK_USERS, MOCK_DEPARTMENTS, MOCK_TASKS, MOCK_RESOURCES, MOCK_ROLE_PERMISSIONS, MOCK_CONVERSATIONS, MOCK_TEAM_CHAT_MESSAGES } from './constants';
-import Login from './components/Login';
-import Layout from './components/Layout';
-import Dashboard, { Settings } from './components/Dashboard';
-import Reports from './components/Reports';
-import Organization from './components/DepartmentManagement';
-import TaskList from './components/TaskList';
-import Resources from './components/Resources';
-import Calendar from './components/Calendar';
-import ChatView from './components/Chat';
-import ForcePasswordChangeModal from './components/ForcePasswordChangeModal';
-import { GoogleGenAI, Chat } from '@google/genai';
-import { ToastContainer } from './components/Toast';
-import LandingPage from './components/LandingPage';
-import Installer from './components/Installer';
 
-export type View = 'dashboard' | 'tasks' | 'organization' | 'reports' | 'settings' | 'resources' | 'calendar' | 'chat';
+import React, { useState, useEffect, useCallback } from 'react';
+import { GoogleGenAI } from '@google/genai';
+import Layout from './components/Layout';
+import Login from './components/Login';
+import Dashboard, { Settings } from './components/Dashboard';
+import TaskList from './components/TaskList';
+import Calendar from './components/Calendar';
+import Chat from './components/Chat';
+import Organization from './components/DepartmentManagement';
+import Resources from './components/Resources';
+import Reports from './components/Reports';
+import LandingPage from './components/LandingPage';
+import ForcePasswordChangeModal from './components/ForcePasswordChangeModal';
+import { ToastContainer } from './components/Toast';
+
+import { 
+    User, 
+    Task, 
+    Department, 
+    Notification,
+    CompanyResource,
+    RolePermission,
+    Conversation,
+    TeamChatMessage
+} from './types';
+import { MOCK_DEPARTMENTS, MOCK_RESOURCES, MOCK_ROLE_PERMISSIONS, MOCK_TASKS, MOCK_USERS, MOCK_CONVERSATIONS, MOCK_TEAM_CHAT_MESSAGES } from './constants';
+
+export type View = 'dashboard' | 'tasks' | 'calendar' | 'chat' | 'organization' | 'resources' | 'reports' | 'settings';
 
 export interface ChatMessage {
   role: 'user' | 'model';
-  parts: { text: string }[];
+  parts: [{ text: string }];
 }
-
-// --- useLocalStorage Hook ---
-function useLocalStorage<T>(key: string, initialValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
-    const [storedValue, setStoredValue] = useState<T>(() => {
-        try {
-            const item = window.localStorage.getItem(key);
-            return item ? JSON.parse(item) : initialValue;
-        } catch (error) {
-            console.log(error);
-            return initialValue;
-        }
-    });
-
-    const setValue = (value: T | ((val: T) => T)) => {
-        try {
-            const valueToStore = value instanceof Function ? value(storedValue) : value;
-            setStoredValue(valueToStore);
-            window.localStorage.setItem(key, JSON.stringify(valueToStore));
-        } catch (error) {
-            console.log(error);
-        }
-    };
-
-    return [storedValue, setValue];
-}
-
-
-const getConversationDetails = (convo: Conversation, currentUser: User, users: User[]) => {
-    const userMap = new Map(users.map(u => [u.id, u]));
-    if (convo.type === ConversationType.GROUP) {
-      return { name: convo.name || 'Group Chat' };
-    }
-    const otherUserId = convo.participantIds.find(id => id !== currentUser.id);
-    const otherUser = userMap.get(otherUserId!);
-    return { name: otherUser?.name || 'DM' };
-};
 
 const App: React.FC = () => {
-  const isInstalled = localStorage.getItem('smashx_installed') === 'true';
-
-  if (!isInstalled) {
-      if (window.location.hash !== '#/install') {
-          window.location.hash = '#/install';
-      }
-      // Render only the installer if the app is not installed.
-      return <Installer />;
-  }
+  const [showLogin, setShowLogin] = useState(true);
   
-  // If installed, but hash is still there, remove it.
-  if (isInstalled && window.location.hash === '#/install') {
-      window.location.hash = '';
-  }
-
-  // Main application logic is wrapped in a component to allow hooks
-  return <TaskManagerApp />;
-}
-
-const TaskManagerApp: React.FC = () => {
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
+  // App Data State
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [currentView, setCurrentView] = useState<View>('dashboard');
-  const [showPasswordChange, setShowPasswordChange] = useState(false);
-  const [appState, setAppState] = useState<'landing' | 'login' | 'app'>('landing');
-
-  // Persisted State
-  const [users, setUsers] = useLocalStorage<User[]>('smashx_users', MOCK_USERS);
-  const [departments, setDepartments] = useLocalStorage<Department[]>('smashx_departments', MOCK_DEPARTMENTS);
-  const [tasks, setTasks] = useLocalStorage<Task[]>('smashx_tasks', MOCK_TASKS);
-  const [resources, setResources] = useLocalStorage<CompanyResource[]>('smashx_resources', MOCK_RESOURCES);
-  const [notifications, setNotifications] = useLocalStorage<Notification[]>('smashx_notifications', []);
-  const [rolePermissions, setRolePermissions] = useLocalStorage<RolePermission[]>('smashx_role_permissions', MOCK_ROLE_PERMISSIONS);
-  const [conversations, setConversations] = useLocalStorage<Conversation[]>('smashx_conversations', MOCK_CONVERSATIONS);
-  const [teamChatMessages, setTeamChatMessages] = useLocalStorage<TeamChatMessage[]>('smashx_team_chat_messages', MOCK_TEAM_CHAT_MESSAGES);
-  const [appName, setAppName] = useLocalStorage('smashx_appName', 'Zenith Task Manager');
-  const [logoUrl, setLogoUrl] = useLocalStorage('smashx_logoUrl', '');
-  
-  // Transient State
-  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
-  const [isChatbotOpen, setIsChatbotOpen] = useState(false);
-  const [isBotTyping, setIsBotTyping] = useState(false);
-  const [chat, setChat] = useState<Chat | null>(null);
+  const [users, setUsers] = useState<User[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [toasts, setToasts] = useState<Notification[]>([]);
-  const displayedToastIds = useRef(new Set());
+  const [resources, setResources] = useState<CompanyResource[]>([]);
+  const [rolePermissions, setRolePermissions] = useState<RolePermission[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [teamChatMessages, setTeamChatMessages] = useState<TeamChatMessage[]>([]);
+  const [appName, setAppName] = useState('Zenith Task Manager');
+  const [logoUrl, setLogoUrl] = useState('');
 
-  useEffect(() => {
-    document.title = appName;
-  }, [appName]);
+  // UI State
+  const [currentView, setCurrentView] = useState<View>('dashboard');
+  const [isChatbotOpen, setIsChatbotOpen] = useState(false);
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([{ role: 'model', parts: [{ text: 'Hello! I am your AI assistant. How can I help you today?' }] }]);
+  const [isBotTyping, setIsBotTyping] = useState(false);
   
-  useEffect(() => {
-    if (!currentUser) return;
-    const newUnread = notifications.filter(n => 
-        n.userId === currentUser.id && 
-        !n.isRead && 
-        !displayedToastIds.current.has(n.id)
-    );
+  const saveData = useCallback(<T,>(key: string, data: T) => {
+    localStorage.setItem(key, JSON.stringify(data));
+  }, []);
 
-    if (newUnread.length > 0) {
-        setToasts(prev => [...prev, ...newUnread]);
-        newUnread.forEach(n => displayedToastIds.current.add(n.id));
-    }
-  }, [notifications, currentUser]);
-
-
-  useEffect(() => {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
-    const assistantName = appName.replace(' Task Manager', '');
-    const chatInstance = ai.chats.create({
-      model: 'gemini-2.5-flash',
-      config: {
-        systemInstruction: `You are ${assistantName} Assistant, an expert in productivity, project management, and business strategy. Help users refine their tasks, brainstorm ideas, and improve their workflow. Be encouraging and provide actionable advice. Format your responses using markdown.`,
-      },
-    });
-    setChat(chatInstance);
-  }, [appName]);
-  
-  // Simulate bot sending daily task reminder to General channel
-  useEffect(() => {
-    const botSentToday = localStorage.getItem('botSentToday');
-    const today = new Date().toDateString();
-    
-    if (botSentToday !== today) {
-      const generalConvo = conversations.find(c => c.name === 'General');
-      if (generalConvo) {
-        const overdueTasks = tasks.filter(t => new Date(t.dueDate) < new Date() && t.status !== Status.Done);
-        
-        let messageContent = `**Good morning, team!** Here's a quick look at overdue tasks:`;
-        if (overdueTasks.length > 0) {
-            messageContent += overdueTasks.map(t => `\n- **${t.title}** (Overdue)`).join('');
-        } else {
-            messageContent = `**Good morning, team!** Great job, there are no overdue tasks today. Keep up the momentum!`;
-        }
-        
-        const botMessage: TeamChatMessage = {
-          id: `msg-${Date.now()}`,
-          conversationId: generalConvo.id,
-          senderId: 'user-bot',
-          content: messageContent,
-          createdAt: new Date().toISOString(),
-        };
-
-        setTimeout(() => {
-          setTeamChatMessages(prev => [...prev, botMessage]);
-          setConversations(prev => prev.map(c => c.id === generalConvo.id ? {...c, lastMessageAt: new Date().toISOString()} : c));
-          localStorage.setItem('botSentToday', today);
-        }, 2000); // Send after 2 seconds
-      }
-    }
-  }, [conversations, tasks, setConversations, setTeamChatMessages]);
-
-  const handleSendMessageToBot = async (message: string) => {
-    if (!chat) return;
-    
-    const userMessage: ChatMessage = { role: 'user', parts: [{ text: message }] };
-    setChatHistory(prev => [...prev, userMessage]);
-    setIsBotTyping(true);
-
+  const loadDataFromStorage = useCallback(() => {
     try {
-        const result = await chat.sendMessageStream({ message });
-        let text = '';
-        for await (const chunk of result) {
-            text += chunk.text;
-             setChatHistory(prev => {
-                const newHistory = [...prev];
-                const lastMessage = newHistory[newHistory.length - 1];
-                if (lastMessage && lastMessage.role === 'model') {
-                    lastMessage.parts[0].text = text;
-                    return newHistory;
-                } else {
-                    return [...newHistory, { role: 'model', parts: [{ text }] }];
-                }
-            });
-        }
+      setUsers(JSON.parse(localStorage.getItem('smashx_users') || '[]'));
+      setTasks(JSON.parse(localStorage.getItem('smashx_tasks') || '[]'));
+      setDepartments(JSON.parse(localStorage.getItem('smashx_departments') || '[]'));
+      setNotifications(JSON.parse(localStorage.getItem('smashx_notifications') || '[]'));
+      setResources(JSON.parse(localStorage.getItem('smashx_resources') || '[]'));
+      setRolePermissions(JSON.parse(localStorage.getItem('smashx_role_permissions') || '[]'));
+      setConversations(JSON.parse(localStorage.getItem('smashx_conversations') || '[]'));
+      setTeamChatMessages(JSON.parse(localStorage.getItem('smashx_team_chat_messages') || '[]'));
+      setAppName(JSON.parse(localStorage.getItem('smashx_appName') || '"Zenith Task Manager"'));
+      setLogoUrl(JSON.parse(localStorage.getItem('smashx_logoUrl') || '""'));
+      
+      const loggedInUserId = localStorage.getItem('smashx_currentUser');
+      if (loggedInUserId) {
+        const allUsers: User[] = JSON.parse(localStorage.getItem('smashx_users') || '[]');
+        const user = allUsers.find(u => u.id === loggedInUserId);
+        setCurrentUser(user || null);
+      }
     } catch (error) {
-        console.error("Chatbot Error:", error);
-        const errorMessage: ChatMessage = { role: 'model', parts: [{ text: "Sorry, I'm having trouble connecting right now." }] };
-        setChatHistory(prev => [...prev, errorMessage]);
-    } finally {
-        setIsBotTyping(false);
+      console.error("Failed to load data from localStorage", error);
+      // Might want to clear storage if it's corrupted
     }
-};
+  }, []);
+
+  useEffect(() => {
+    try {
+      const usersExist = localStorage.getItem('smashx_users');
+      if (!usersExist || JSON.parse(usersExist).length === 0) {
+        saveData('smashx_users', MOCK_USERS);
+        saveData('smashx_tasks', MOCK_TASKS);
+        saveData('smashx_departments', MOCK_DEPARTMENTS);
+        saveData('smashx_notifications', []);
+        saveData('smashx_resources', MOCK_RESOURCES);
+        saveData('smashx_role_permissions', MOCK_ROLE_PERMISSIONS);
+        saveData('smashx_conversations', MOCK_CONVERSATIONS);
+        saveData('smashx_team_chat_messages', MOCK_TEAM_CHAT_MESSAGES);
+        saveData('smashx_appName', 'Zenith Task Manager');
+        saveData('smashx_logoUrl', '');
+      }
+    } catch (error) {
+      console.error("Failed to initialize data", error);
+    }
+    loadDataFromStorage();
+  }, [loadDataFromStorage, saveData]);
   
-  // Advanced recurring task generation
-  useEffect(() => {
-    const interval = setInterval(() => {
-        const newNotifications: Notification[] = [];
-        setTasks(prevTasks => {
-            const newTasks: Task[] = [];
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
+  // --- Data Persistence ---
+  useEffect(() => { saveData('smashx_users', users) }, [users]);
+  useEffect(() => { saveData('smashx_tasks', tasks) }, [tasks]);
+  useEffect(() => { saveData('smashx_departments', departments) }, [departments]);
+  useEffect(() => { saveData('smashx_notifications', notifications) }, [notifications]);
+  useEffect(() => { saveData('smashx_resources', resources) }, [resources]);
+  useEffect(() => { saveData('smashx_role_permissions', rolePermissions) }, [rolePermissions]);
+  useEffect(() => { saveData('smashx_team_chat_messages', teamChatMessages) }, [teamChatMessages]);
+  useEffect(() => { saveData('smashx_conversations', conversations) }, [conversations]);
+  useEffect(() => { saveData('smashx_appName', appName) }, [appName]);
+  useEffect(() => { saveData('smashx_logoUrl', logoUrl) }, [logoUrl]);
 
-            const parentTasks = prevTasks.filter(task => task.recurrence && task.recurrence.freq !== 'none' && !task.parentTaskId);
-
-            parentTasks.forEach(parent => {
-                const instances = prevTasks.filter(t => t.parentTaskId === parent.id);
-                
-                const todayString = today.toDateString();
-                const hasInstanceForToday = instances.some(inst => new Date(inst.createdAt).toDateString() === todayString);
-
-                if (hasInstanceForToday) return;
-
-                let shouldCreate = false;
-                switch (parent.recurrence?.freq) {
-                    case 'daily':
-                        shouldCreate = true;
-                        break;
-                    case 'weekly':
-                        if (today.getDay() === parent.recurrence.dayOfWeek) {
-                            shouldCreate = true;
-                        }
-                        break;
-                    case 'monthly':
-                        if (today.getDate() === parent.recurrence.dayOfMonth) {
-                            shouldCreate = true;
-                        }
-                        break;
-                }
-                
-                if (parent.recurrence?.endDate && today > new Date(parent.recurrence.endDate)) {
-                    shouldCreate = false;
-                }
-
-                if (shouldCreate) {
-                    const newDueDate = new Date(today);
-                    const originalDueDate = new Date(parent.dueDate);
-                    newDueDate.setHours(originalDueDate.getHours(), originalDueDate.getMinutes(), originalDueDate.getSeconds());
-
-                    const newInstance: Task = {
-                        ...parent,
-                        id: `task-${Date.now()}-${Math.random()}`,
-                        parentTaskId: parent.id,
-                        dueDate: newDueDate.toISOString(),
-                        createdAt: new Date().toISOString(),
-                        status: Status.ToDo,
-                        completedAt: undefined,
-                        viewedBy: [],
-                        comments: [],
-                        attachments: parent.attachments,
-                    };
-                    newTasks.push(newInstance);
-
-                    newInstance.assigneeIds.forEach(userId => {
-                      newNotifications.push({
-                        id: `notif-recur-${newInstance.id}-${userId}`,
-                        userId,
-                        message: `A new recurring task has been created: "${newInstance.title}"`,
-                        isRead: false,
-                        createdAt: new Date().toISOString(),
-                        link: { type: 'task', id: newInstance.id },
-                      });
-                    });
-                }
-            });
-
-            if (newNotifications.length > 0) {
-              setNotifications(prev => [...prev, ...newNotifications]);
-            }
-            return [...prevTasks, ...newTasks];
-        });
-    }, 60000 * 60); // Check every hour
-    return () => clearInterval(interval);
-  }, [setTasks, setNotifications]);
-
-  // Notification generation (Due Soon & Overdue)
-  useEffect(() => {
-    if (!currentUser) return;
-    const interval = setInterval(() => {
-        const now = new Date();
-        const userTasks = tasks.filter(task => task.assigneeIds.includes(currentUser.id) && task.status !== Status.Done);
-        
-        const newNotifications: Notification[] = [];
-        
-        // Due Soon
-        const twentyFourHours = 24 * 60 * 60 * 1000;
-        const upcomingTasks = userTasks.filter(task => {
-            const dueDate = new Date(task.dueDate).getTime();
-            return dueDate > now.getTime() && dueDate <= (now.getTime() + twentyFourHours);
-        });
-        upcomingTasks.forEach(task => {
-            const notificationId = `notif-due-${task.id}`;
-            if (!notifications.some(n => n.id === notificationId)) {
-                newNotifications.push({
-                    id: notificationId, userId: currentUser.id, message: `Task "${task.title}" is due soon.`,
-                    isRead: false, createdAt: new Date().toISOString(),
-                    link: { type: 'task', id: task.id }
-                });
-            }
-        });
-
-        // Overdue
-        const overdueTasks = userTasks.filter(task => new Date(task.dueDate) < now);
-        overdueTasks.forEach(task => {
-            const notificationId = `notif-overdue-${task.id}`;
-            if (!notifications.some(n => n.id === notificationId)) {
-                 newNotifications.push({
-                    id: notificationId, userId: currentUser.id, message: `Task "${task.title}" is overdue.`,
-                    isRead: false, createdAt: new Date().toISOString(),
-                    link: { type: 'task', id: task.id }
-                });
-            }
-        });
-
-        if (newNotifications.length > 0) {
-            setNotifications(prev => [...prev, ...newNotifications]);
-        }
-    }, 30000); // Check every 30 seconds
-
-    return () => clearInterval(interval);
-
-  }, [currentUser, tasks, notifications, setNotifications]);
-
-  const handleLogin = useCallback((phone: string, password: string): boolean => {
-    const user = users.find(u => u.phone === phone && u.password === password);
+  // --- Handlers ---
+  const handleLogin = async (email: string, password: string): Promise<boolean> => {
+    // Note: In a real app, this logic would be on a secure backend.
+    const userFromStorage: User[] = JSON.parse(localStorage.getItem('smashx_users') || '[]');
+    const user = userFromStorage.find(u => u.email === email && u.password === password);
     if (user) {
       setCurrentUser(user);
-      setIsLoggedIn(true);
-      setAppState('app');
-      if (user.forcePasswordChange) {
-        setShowPasswordChange(true);
-      } else {
-        setCurrentView('dashboard');
-      }
+      localStorage.setItem('smashx_currentUser', user.id);
       return true;
     }
     return false;
-  }, [users]);
+  };
 
-  const handleLogout = useCallback(() => {
-    setIsLoggedIn(false);
+  const handleLogout = () => {
     setCurrentUser(null);
-    setShowPasswordChange(false);
-    setIsChatbotOpen(false);
-    setChatHistory([]);
-    setAppState('landing');
-  }, []);
-  
-  const handlePasswordChanged = useCallback((userId: string, newPassword: string) => {
-      setUsers(prevUsers => prevUsers.map(u => 
-          u.id === userId 
-          ? { ...u, password: newPassword, forcePasswordChange: false } 
-          : u
-      ));
-      setCurrentUser(prevUser => prevUser ? { ...prevUser, password: newPassword, forcePasswordChange: false } : null);
-      setShowPasswordChange(false);
-      setCurrentView('dashboard');
-  }, [setUsers]);
-
-  const navigateTo = useCallback((view: View) => {
-    setCurrentView(view);
-  }, []);
-  
-  const handleUpdateTask = (updatedTask: Task) => {
-      setTasks(prevTasks => {
-          const newTasks = [...prevTasks];
-          const taskIndex = newTasks.findIndex(t => t.id === updatedTask.id);
-          if (taskIndex === -1) return prevTasks;
-
-          const originalTask = newTasks[taskIndex];
-          const taskWithTimestamp = { ...updatedTask, updatedAt: new Date().toISOString() };
-          newTasks[taskIndex] = taskWithTimestamp;
-
-          // --- Notification Logic ---
-          if (!currentUser) return newTasks;
-          const newNotifications: Notification[] = [];
-          const link = { type: 'task' as const, id: taskWithTimestamp.id };
-
-          // 1. Status Change Notification
-          if (originalTask.status !== taskWithTimestamp.status) {
-              const message = `Task "${taskWithTimestamp.title}" status: ${taskWithTimestamp.status}.`;
-              const recipients = new Set([taskWithTimestamp.reporterId, ...taskWithTimestamp.assigneeIds]);
-              recipients.delete(currentUser.id);
-              recipients.forEach(userId => {
-                  newNotifications.push({
-                      id: `notif-status-${taskWithTimestamp.id}-${userId}-${Date.now()}`,
-                      userId: userId, message, isRead: false, createdAt: new Date().toISOString(), link
-                  });
-              });
-          }
-
-          // 2. New Comment Notification
-          const originalCommentCount = originalTask.comments?.length || 0;
-          const updatedCommentCount = taskWithTimestamp.comments?.length || 0;
-          if (updatedCommentCount > originalCommentCount) {
-              const newComment = taskWithTimestamp.comments![updatedCommentCount - 1];
-              if (newComment.userId === currentUser.id && newComment.type === 'user') {
-                   const message = `${currentUser.name} commented on "${taskWithTimestamp.title}".`;
-                   const recipients = new Set([taskWithTimestamp.reporterId, ...taskWithTimestamp.assigneeIds]);
-                   recipients.delete(currentUser.id);
-                   recipients.forEach(userId => {
-                       newNotifications.push({
-                           id: `notif-comment-${taskWithTimestamp.id}-${userId}-${Date.now()}`,
-                           userId: userId, message, isRead: false, createdAt: new Date().toISOString(), link
-                       });
-                   });
-              }
-          }
-
-          if (newNotifications.length > 0) {
-              setNotifications(prev => [...prev, ...newNotifications]);
-          }
-          // --- End Notification Logic ---
-          
-          return newTasks;
-      });
+    localStorage.removeItem('smashx_currentUser');
+    setShowLogin(false); // Go back to landing page
   };
   
-  const handleCreateTask = (newTask: Omit<Task, 'id' | 'reporterId' | 'viewedBy'>) => {
-      if(!currentUser) return;
-      const taskWithId: Task = {
-          ...newTask,
-          id: `task-${Date.now()}`,
-          reporterId: currentUser.id,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          viewedBy: [],
-          status: Status.ToDo,
-      };
+  const addNotification = (message: string, link?: Notification['link']) => {
+    const newNotif: Notification = {
+      id: `notif-${Date.now()}`,
+      message,
+      link,
+      isRead: false,
+      createdAt: new Date().toISOString(),
+    };
+    setNotifications(prev => [...prev, newNotif]);
+    setToasts(prev => [...prev, newNotif]);
+  };
 
-      setTasks(prev => [...prev, taskWithId]);
-
-      const newNotifications: Notification[] = newTask.assigneeIds.map(userId => ({
-        id: `notif-assign-${taskWithId.id}-${userId}`,
-        userId: userId,
-        message: `You've been assigned a new task: "${taskWithId.title}"`,
-        isRead: false,
+  const handleCreateTask = (task: Omit<Task, 'id' | 'reporterId' | 'viewedBy'>) => {
+    if (!currentUser) return;
+    const newTask: Task = {
+        ...task,
+        id: `task-${Date.now()}`,
+        reporterId: currentUser.id,
+        viewedBy: [currentUser.id],
         createdAt: new Date().toISOString(),
-        link: { type: 'task', id: taskWithId.id }
-      }));
-      setNotifications(prev => [...prev, ...newNotifications]);
+        comments: [],
+    };
+    setTasks(prev => [...prev, newTask]);
+    addNotification(`New task created: ${newTask.title}`, { type: 'task', id: newTask.id });
+  };
+  
+  const handleUpdateTask = (updatedTask: Task) => {
+    setTasks(prev => prev.map(t => t.id === updatedTask.id ? updatedTask : t));
+    addNotification(`Task updated: ${updatedTask.title}`, { type: 'task', id: updatedTask.id });
+  };
+
+  const handleTaskRead = (task: Task) => {
+    if (!currentUser || task.viewedBy.includes(currentUser.id)) return;
+    const updatedTask = { ...task, viewedBy: [...task.viewedBy, currentUser.id] };
+    setTasks(prev => prev.map(t => t.id === updatedTask.id ? updatedTask : t));
   };
   
   const handleReactivateTask = (taskId: string, reason: string, newDueDate: string) => {
-      setTasks(prevTasks => prevTasks.map(task => 
-          task.id === taskId 
-          ? { ...task, status: Status.ToDo, completedAt: undefined, dueDate: newDueDate, viewedBy: [], comments: [...(task.comments || []), {id: `comment-${Date.now()}`, userId: currentUser?.id || '', content: `Reactivated: ${reason}`, createdAt: new Date().toISOString()}] } 
-          : task
-      ));
+    setTasks(prev => prev.map(t => t.id === taskId ? { 
+        ...t, 
+        status: 'To Do', 
+        dueDate: newDueDate,
+        completedAt: undefined,
+        comments: [...t.comments, { id: `comment-${Date.now()}`, userId: currentUser!.id, content: `Reactivated: ${reason}`, createdAt: new Date().toISOString(), type: 'system' }]
+    } : t));
   };
 
-  const handleTaskReadByAssignee = (task: Task) => {
-    if (!currentUser || !task.assigneeIds.includes(currentUser.id) || task.viewedBy.includes(currentUser.id)) {
-        return;
+  const handleSendMessage = async (message: string) => {
+    setChatHistory(prev => [...prev, { role: 'user', parts: [{ text: message }] }]);
+    setIsBotTyping(true);
+
+    try {
+      const ai = new GoogleGenAI({apiKey: process.env.API_KEY});
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: `Given the following chat history: ${JSON.stringify(chatHistory.slice(-5))}, and the user's new message: "${message}", provide a helpful response.`,
+      });
+      
+      setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: response.text }] }]);
+    } catch (error) {
+      console.error("Gemini API error:", error);
+      setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: "Sorry, I encountered an error. Please try again." }] }]);
+    } finally {
+      setIsBotTyping(false);
     }
-
-    const updatedTask: Task = {
-        ...task,
-        viewedBy: [...task.viewedBy, currentUser.id],
-        status: Status.Pending, // Automatically change status to Pending
-    };
-    handleUpdateTask(updatedTask);
-
-    // Mark assignment notification as read
-    const notificationId = `notif-assign-${task.id}-${currentUser.id}`;
-    setNotifications(prev => prev.map(n => n.id === notificationId ? { ...n, isRead: true } : n));
   };
   
-  const handleUserUpdate = (updatedUser: User) => {
-    setUsers(users.map(u => u.id === updatedUser.id ? updatedUser : u));
-    if (currentUser?.id === updatedUser.id) {
-        setCurrentUser(updatedUser);
+   const handlePasswordChanged = (userId: string, newPassword: string) => {
+      setUsers(prevUsers => prevUsers.map(u => u.id === userId ? { ...u, password: newPassword, forcePasswordChange: false } : u));
+      // Re-set current user to update the state
+      setCurrentUser(prev => prev && ({ ...prev, forcePasswordChange: false }));
+  };
+
+  const renderCurrentView = () => {
+    switch (currentView) {
+      case 'dashboard':
+        return <Dashboard currentUser={currentUser!} tasks={tasks} users={users} departments={departments} onUpdateTask={handleUpdateTask} onCreateTask={handleCreateTask} onReactivateTask={handleReactivateTask} onTaskRead={handleTaskRead} rolePermissions={rolePermissions} />;
+      case 'tasks':
+        return <TaskList currentUser={currentUser!} tasks={tasks} users={users} onUpdateTask={handleUpdateTask} onCreateTask={handleCreateTask} onReactivateTask={handleReactivateTask} onTaskRead={handleTaskRead} rolePermissions={rolePermissions} />;
+      case 'calendar':
+        return <Calendar currentUser={currentUser!} tasks={tasks} users={users} onUpdateTask={handleUpdateTask} onCreateTask={handleCreateTask} onReactivateTask={handleReactivateTask} onTaskRead={handleTaskRead} rolePermissions={rolePermissions} />;
+      case 'chat':
+        return <Chat currentUser={currentUser!} users={users} conversations={conversations} messages={teamChatMessages} onSendMessage={(convId, content) => {
+            const newMsg: TeamChatMessage = { id: `msg-${Date.now()}`, conversationId: convId, userId: currentUser!.id, content, createdAt: new Date().toISOString() };
+            setTeamChatMessages(prev => [...prev, newMsg]);
+        }} />;
+      case 'organization':
+        return <Organization departments={departments} users={users} setUsers={setUsers} setDepartments={setDepartments} currentUser={currentUser!} rolePermissions={rolePermissions} onUpdateRolePermissions={setRolePermissions} />;
+      case 'resources':
+        return <Resources currentUser={currentUser!} resources={resources} onSave={(res) => {
+            if ('id' in res) {
+                setResources(prev => prev.map(r => r.id === res.id ? res as CompanyResource : r));
+            } else {
+                setResources(prev => [...prev, { ...res, id: `res-${Date.now()}` } as CompanyResource]);
+            }
+        }} onDelete={(id) => setResources(prev => prev.filter(r => r.id !== id))} rolePermissions={rolePermissions}/>;
+      case 'reports':
+        return <Reports tasks={tasks} users={users} departments={departments} />;
+      case 'settings':
+        return <Settings currentUser={currentUser!} onUserUpdate={(user) => {
+            setUsers(prev => prev.map(u => u.id === user.id ? user : u));
+            if(currentUser?.id === user.id) setCurrentUser(user);
+        }} appName={appName} logoUrl={logoUrl} onAppSettingsUpdate={(name, url) => {
+            setAppName(name);
+            setLogoUrl(url);
+        }} />;
+      default:
+        return <Dashboard currentUser={currentUser!} tasks={tasks} users={users} departments={departments} onUpdateTask={handleUpdateTask} onCreateTask={handleCreateTask} onReactivateTask={handleReactivateTask} onTaskRead={handleTaskRead} rolePermissions={rolePermissions} />;
     }
   };
 
-  const handleCreateOrUpdateResource = (resource: CompanyResource | Omit<CompanyResource, 'id'>) => {
-    if ('id' in resource) {
-        setResources(prev => prev.map(r => r.id === resource.id ? resource as CompanyResource : r));
-    } else {
-        const newResource: CompanyResource = {
-            ...(resource as Omit<CompanyResource, 'id'>),
-            id: `res-${Date.now()}`,
-        };
-        setResources(prev => [...prev, newResource]);
-    }
-  };
-
-  const handleDeleteResource = (resourceId: string) => {
-      setResources(prev => prev.filter(r => r.id !== resourceId));
-  };
-
-  const handleMarkNotificationsAsRead = () => {
-      setNotifications(prev => prev.map(n => ({...n, isRead: true})));
+  if (!currentUser) {
+    return showLogin ? <Login onLogin={handleLogin} appName={appName} logoUrl={logoUrl} /> : <LandingPage onShowLogin={() => setShowLogin(true)} appName={appName} />;
   }
-
-  const handleUpdateRolePermissions = (updatedRolePermissions: RolePermission[]) => {
-      setRolePermissions(updatedRolePermissions);
+  
+  if (currentUser.forcePasswordChange) {
+      return <ForcePasswordChangeModal currentUser={currentUser} onPasswordChanged={handlePasswordChanged} />;
   }
-
-  const handleAppSettingsUpdate = (name: string, url: string) => {
-    setAppName(name);
-    setLogoUrl(url);
-  };
-  
-  const handleSendTeamMessage = (conversationId: string, content: string) => {
-    if (!currentUser) return;
-    const newMessage: TeamChatMessage = {
-      id: `msg-${Date.now()}`,
-      conversationId,
-      senderId: currentUser.id,
-      content,
-      createdAt: new Date().toISOString(),
-    };
-    setTeamChatMessages(prev => [...prev, newMessage]);
-    setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, lastMessageAt: new Date().toISOString() } : c));
-
-    // Create notifications for other participants
-    const conversation = conversations.find(c => c.id === conversationId);
-    if (conversation) {
-        const convoName = getConversationDetails(conversation, currentUser, users).name;
-        const newNotifications: Notification[] = conversation.participantIds
-            .filter(id => id !== currentUser.id) // Don't notify the sender
-            .map(userId => ({
-                id: `notif-chat-${newMessage.id}-${userId}`,
-                userId,
-                message: `New message from ${currentUser.name} in "${convoName}"`,
-                isRead: false,
-                createdAt: new Date().toISOString(),
-                link: { type: 'chat', id: conversationId }
-            }));
-        setNotifications(prev => [...prev, ...newNotifications]);
-    }
-  };
-
-  const handleCreateConversation = (participantIds: string[], groupName?: string) => {
-    if (!currentUser) return;
-
-    // Check if a DM with the same single participant already exists
-    if (participantIds.length === 1) {
-      const otherUserId = participantIds[0];
-      const existing = conversations.find(c => 
-        c.type === ConversationType.DM &&
-        c.participantIds.length === 2 &&
-        c.participantIds.includes(currentUser.id) &&
-        c.participantIds.includes(otherUserId)
-      );
-      if (existing) {
-        // A conversation already exists, we can perhaps switch to it.
-        // For now, we just prevent creating a duplicate.
-        // The ChatView component will handle switching.
-        return existing.id;
-      }
-    }
-    
-    const newConversation: Conversation = {
-      id: `convo-${Date.now()}`,
-      type: participantIds.length > 1 ? ConversationType.GROUP : ConversationType.DM,
-      participantIds: [...participantIds, currentUser.id],
-      name: groupName,
-      groupAvatar: participantIds.length > 1 ? `https://picsum.photos/seed/group-${Date.now()}/100` : undefined,
-      lastMessageAt: new Date().toISOString(),
-    };
-    
-    setConversations(prev => [newConversation, ...prev]);
-    return newConversation.id;
-  };
-  
-  const removeToast = (toastId: string) => {
-    setToasts(prev => prev.filter(t => t.id !== toastId));
-  };
   
   const handleNotificationClick = (notification: Notification) => {
     if (notification.link) {
-        if (notification.link.type === 'chat') {
-            navigateTo('chat');
-        } else if (notification.link.type === 'task') {
-            navigateTo('tasks');
-        }
+      if (notification.link.type === 'task') {
+        // This is a simplified navigation. A more robust solution might open the task modal directly.
+        setCurrentView('tasks');
+      } else if (notification.link.type === 'chat') {
+        setCurrentView('chat');
+      }
     }
-    // Mark as read
-    setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, isRead: true } : n));
-    // Remove the toast
-    removeToast(notification.id);
   };
-
-  const renderContent = () => {
-    if (!currentUser) return null;
-    let content;
-    switch (currentView) {
-      case 'dashboard':
-        content = <Dashboard currentUser={currentUser} tasks={tasks} users={users} departments={departments} onUpdateTask={handleUpdateTask} onCreateTask={handleCreateTask} onReactivateTask={handleReactivateTask} onTaskRead={handleTaskReadByAssignee} rolePermissions={rolePermissions} />;
-        break;
-      case 'tasks':
-        content = <TaskList currentUser={currentUser} tasks={tasks} users={users} onUpdateTask={handleUpdateTask} onCreateTask={handleCreateTask} onReactivateTask={handleReactivateTask} onTaskRead={handleTaskReadByAssignee} rolePermissions={rolePermissions} />;
-        break;
-      case 'calendar':
-        content = <Calendar currentUser={currentUser} tasks={tasks} users={users} onUpdateTask={handleUpdateTask} onCreateTask={handleCreateTask} onReactivateTask={handleReactivateTask} onTaskRead={handleTaskReadByAssignee} rolePermissions={rolePermissions} />;
-        break;
-      case 'chat':
-        content = <ChatView currentUser={currentUser} users={users} conversations={conversations} messages={teamChatMessages} onSendMessage={handleSendTeamMessage} onCreateConversation={handleCreateConversation} />;
-        break;
-      case 'organization':
-        content = <Organization departments={departments} users={users} setUsers={setUsers} setDepartments={setDepartments} currentUser={currentUser} rolePermissions={rolePermissions} onUpdateRolePermissions={handleUpdateRolePermissions} />;
-        break;
-      case 'resources':
-        content = <Resources currentUser={currentUser} resources={resources} onSave={handleCreateOrUpdateResource} onDelete={handleDeleteResource} rolePermissions={rolePermissions} />;
-        break;
-      case 'reports':
-        content = <Reports tasks={tasks} users={users} departments={departments} />;
-        break;
-      case 'settings':
-        content = <Settings currentUser={currentUser} onUserUpdate={handleUserUpdate} appName={appName} logoUrl={logoUrl} onAppSettingsUpdate={handleAppSettingsUpdate} />;
-        break;
-      default:
-        content = <div className="p-8"><h1 className="text-2xl font-bold">Page Not Found</h1></div>;
-        break;
-    }
-    return <div className="animate-fadeInUp" key={currentView}>{content}</div>;
-  };
-
-  if (appState === 'landing') {
-    return <LandingPage onShowLogin={() => setAppState('login')} appName={appName} />;
-  }
   
-  if (appState === 'login' || !isLoggedIn || !currentUser) {
-    return <Login onLogin={handleLogin} appName={appName} logoUrl={logoUrl} />;
-  }
-
-  if (showPasswordChange) {
-      return <ForcePasswordChangeModal currentUser={currentUser} onPasswordChanged={handlePasswordChanged} />;
-  }
-
   return (
     <>
       <Layout 
-          currentUser={currentUser} 
-          onLogout={handleLogout} 
-          navigateTo={navigateTo} 
-          currentView={currentView}
-          isChatbotOpen={isChatbotOpen}
-          setIsChatbotOpen={setIsChatbotOpen}
-          chatHistory={chatHistory}
-          onSendMessage={handleSendMessageToBot}
-          isBotTyping={isBotTyping}
-          notifications={notifications}
-          onMarkNotificationsAsRead={handleMarkNotificationsAsRead}
-          rolePermissions={rolePermissions}
-          appName={appName}
-          logoUrl={logoUrl}
+        currentUser={currentUser} 
+        onLogout={handleLogout}
+        navigateTo={setCurrentView}
+        currentView={currentView}
+        isChatbotOpen={isChatbotOpen}
+        setIsChatbotOpen={setIsChatbotOpen}
+        chatHistory={chatHistory}
+        onSendMessage={handleSendMessage}
+        isBotTyping={isBotTyping}
+        notifications={notifications}
+        onMarkNotificationsAsRead={() => setNotifications(prev => prev.map(n => ({...n, isRead: true})))}
+        rolePermissions={rolePermissions}
+        appName={appName}
+        logoUrl={logoUrl}
       >
-        {renderContent()}
+        {renderCurrentView()}
       </Layout>
-      <ToastContainer toasts={toasts} onRemove={removeToast} onNotificationClick={handleNotificationClick} />
+      <ToastContainer 
+        toasts={toasts}
+        onRemove={(id) => setToasts(prev => prev.filter(t => t.id !== id))}
+        onNotificationClick={handleNotificationClick}
+      />
     </>
   );
 };

@@ -3,28 +3,33 @@ import { UserIcon, LockClosedIcon } from './icons/OutlineIcons';
 import { GoogleIcon, FacebookIcon, TwitterIcon } from './icons/SocialIcons';
 
 interface LoginProps {
-  onLogin: (phone: string, password: string) => boolean;
+  onLogin: (email: string, password: string) => Promise<boolean>;
   appName: string;
   logoUrl: string;
 }
 
-const Login: React.FC<LoginProps> = ({ onLogin }) => {
-  const [phone, setPhone] = useState('+923400000003');
+const Login: React.FC<LoginProps> = ({ onLogin, appName, logoUrl }) => {
+  const [email, setEmail] = useState('faisal@example.com');
   const [password, setPassword] = useState('password');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    const success = onLogin(phone, password);
+    setLoading(true);
+    const success = await onLogin(email, password);
     if (!success) {
-      setError('Invalid username or password. Please try again.');
+      setError('Invalid email or password. Please try again.');
     }
+    setLoading(false);
   };
   
-  const handleGoogleLogin = () => {
+  const handleGoogleLogin = async () => {
+    setLoading(true);
     // Simulate login with a predefined Google user (Faisal)
-    onLogin('+923400000003', 'password');
+    await onLogin('faisal@example.com', 'password');
+    setLoading(false);
   };
 
   return (
@@ -39,18 +44,18 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             
             <form className="space-y-6" onSubmit={handleSubmit}>
                 <div>
-                    <label className="text-sm font-medium text-gray-600">Username</label>
+                    <label className="text-sm font-medium text-gray-600">Email</label>
                     <div className="relative mt-1">
                         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                             <UserIcon className="h-5 w-5 text-gray-400"/>
                         </div>
                         <input
-                          type="text"
+                          type="email"
                           required
                           className="appearance-none block w-full pl-10 pr-3 py-2.5 border border-gray-300 placeholder-gray-400 text-gray-900 bg-gray-50 rounded-lg focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
-                          placeholder="Type your username"
-                          value={phone}
-                          onChange={(e) => setPhone(e.target.value)}
+                          placeholder="Type your email"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
                         />
                     </div>
                 </div>
@@ -83,10 +88,11 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                 <div>
                     <button
                       type="submit"
-                      className="w-full flex justify-center py-3 px-4 border border-transparent text-sm font-bold rounded-lg text-white shadow-lg transition-all duration-300 ease-in-out"
+                      disabled={loading}
+                      className="w-full flex justify-center py-3 px-4 border border-transparent text-sm font-bold rounded-lg text-white shadow-lg transition-all duration-300 ease-in-out disabled:opacity-75"
                       style={{ background: 'linear-gradient(to right, #6366f1, #a855f7, #ec4899)' }}
                     >
-                      LOGIN
+                      {loading ? 'Logging in...' : 'LOGIN'}
                     </button>
                 </div>
             </form>

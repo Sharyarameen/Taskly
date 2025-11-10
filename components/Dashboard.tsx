@@ -1,6 +1,6 @@
 
+
 import React, { useState, useMemo } from 'react';
-// FIX: Import 'Role' enum to use in the Settings component.
 import { Task, User, Department, Priority, Status, RolePermission, Role } from '../types';
 import TaskModal from './TaskModal';
 import { PlusIcon } from './icons/SolidIcons';

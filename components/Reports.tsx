@@ -87,16 +87,22 @@ const Reports: React.FC<ReportsProps> = ({ tasks, users, departments }) => {
                 avgTimeMs,
             };
         });
+        
+        const completedFilteredTasks = filteredTasks.filter(task => task.status === Status.Done && task.completedAt);
+        const totalCompleted = completedFilteredTasks.length;
 
-        const totalCompleted = performance.reduce((sum, p) => sum + p.completedCount, 0);
-        const overallOnTimeCount = filteredTasks.filter(t => t.status === Status.Done && t.completedAt && new Date(t.completedAt) <= new Date(t.dueDate)).length;
+        const overallOnTimeCount = completedFilteredTasks.filter(t => new Date(t.completedAt!) <= new Date(t.dueDate)).length;
         const overallOnTimeRate = totalCompleted > 0 ? ((overallOnTimeCount / totalCompleted) * 100).toFixed(0) + '%' : 'N/A';
-        // FIX: `avgTimeMs` was out of scope. It has been added to the `performance` object and is now accessed via `p.avgTimeMs`.
-        const totalAvgTimeMs = performance.reduce((acc, p) => acc + (p.avgCompletionTime !== 'N/A' ? p.completedCount : 0), 0) > 0 ? performance.reduce((acc, p) => acc + (p.avgCompletionTime !== 'N/A' ? p.avgTimeMs : 0), 0) / performance.filter(p => p.avgCompletionTime !== 'N/A').length : 0;
+
+        const totalOverallCompletionTime = completedFilteredTasks.reduce((acc, task) => {
+            const startTime = new Date(task.createdAt);
+            const endTime = new Date(task.completedAt!);
+            return acc + (endTime.getTime() - startTime.getTime());
+        }, 0);
+        const totalAvgTimeMs = totalCompleted > 0 ? totalOverallCompletionTime / totalCompleted : 0;
         const totalDays = Math.floor(totalAvgTimeMs / (1000 * 60 * 60 * 24));
         const totalHours = Math.floor((totalAvgTimeMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
         const overallAvgCompletion = totalAvgTimeMs > 0 ? `${totalDays}d ${totalHours}h` : 'N/A';
-
 
         return {
             performance,
