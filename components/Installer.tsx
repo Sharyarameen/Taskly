@@ -36,7 +36,7 @@ const Installer = () => {
   };
 
   const goToLogin = () => {
-    window.location.href = '/';
+    window.location.reload();
   };
 
   const renderContent = () => {
