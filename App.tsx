@@ -1,6 +1,4 @@
 
-
-
 import React, { useState, useEffect } from 'react';
 import { GoogleGenAI } from '@google/genai';
 import Layout from './components/Layout';
@@ -31,7 +29,8 @@ import {
 // Firebase imports
 import { auth, db } from './firebaseConfig';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, updatePassword } from 'firebase/auth';
-import { collection, onSnapshot, doc, getDoc, addDoc, updateDoc, deleteDoc, writeBatch, setDoc, query, where, getDocs } from 'firebase/firestore';
+// Fix: Import QuerySnapshot and DocumentData for explicit typing
+import { collection, onSnapshot, doc, getDoc, addDoc, updateDoc, deleteDoc, writeBatch, setDoc, query, where, getDocs, QuerySnapshot, DocumentData } from 'firebase/firestore';
 
 
 export type View = 'dashboard' | 'tasks' | 'calendar' | 'chat' | 'organization' | 'resources' | 'reports' | 'settings';
@@ -77,7 +76,11 @@ const App: React.FC = () => {
             
             if (!querySnapshot.empty) {
                 const userDoc = querySnapshot.docs[0];
-                setCurrentUser({ id: userDoc.id, ...userDoc.data() } as User);
+                // Fix: Ensure userDoc.data() is an object before spreading.
+                const userData = userDoc.data();
+                if (userData) {
+                    setCurrentUser({ id: userDoc.id, ...userData } as User);
+                }
             } else {
                 console.error("User document not found in Firestore for email:", user.email);
                 await signOut(auth);
@@ -107,7 +110,8 @@ const App: React.FC = () => {
     ];
 
     const unsubscribers = collectionsToSync.map(({ name, setter }) => {
-        return onSnapshot(collection(db, name), (snapshot) => {
+        // Fix: Explicitly type `snapshot` to resolve incorrect type inference.
+        return onSnapshot(collection(db, name), (snapshot: QuerySnapshot<DocumentData>) => {
             const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
             setter(data);
         });
@@ -117,9 +121,10 @@ const App: React.FC = () => {
     const settingsDocRef = doc(db, "settings", "app");
     const unsubscribeSettings = onSnapshot(settingsDocRef, (docSnap) => {
         if (docSnap.exists()) {
-            const settings = docSnap.data();
-            setAppName(settings.appName || 'Zenith Task Manager');
-            setLogoUrl(settings.logoUrl || '');
+            // Fix: Cast settings to a known type to avoid errors on property access.
+            const settings = docSnap.data() as { appName?: string, logoUrl?: string };
+            setAppName(settings?.appName || 'Zenith Task Manager');
+            setLogoUrl(settings?.logoUrl || '');
         }
     });
     unsubscribers.push(unsubscribeSettings);
@@ -129,13 +134,25 @@ const App: React.FC = () => {
 
 
   // --- Handlers ---
-  const handleLogin = async (email: string, password: string): Promise<boolean> => {
+  const handleLogin = async (email: string, password: string): Promise<{ success: boolean; message?: string }> => {
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      return true;
-    } catch (error) {
+      return { success: true };
+    } catch (error: any) {
       console.error("Firebase login error:", error);
-      return false;
+      if (error.code === 'auth/operation-not-allowed' || (error.message && error.message.includes('are-blocked'))) {
+        return { 
+          success: false, 
+          message: "Configuration Error: Email/Password sign-in is disabled.\n\nPlease enable it in the Firebase Console:\nAuthentication -> Sign-in method -> Email/Password." 
+        };
+      }
+      if (error.code === 'auth/invalid-credential') {
+          return { 
+              success: false, 
+              message: 'Login failed: Invalid email or password.\n\nSince you recently switched to a new Firebase project, this error usually means the test user (e.g., ali@example.com) has not been created yet.\n\nPlease go to your Firebase Console -> Authentication -> Users and add the user account.' 
+            };
+      }
+      return { success: false, message: `Login failed: ${error.message}\n(Code: ${error.code})` };
     }
   };
 

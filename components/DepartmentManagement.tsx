@@ -1,4 +1,3 @@
-// Fix: Import 'useEffect' from 'react' to resolve 'Cannot find name' error.
 import React, { useState, useCallback, useEffect } from 'react';
 import { Department, User, Role, RolePermission, Permission } from '../types';
 import { PlusIcon, TrashIcon, PencilIcon } from './icons/SolidIcons';
@@ -71,7 +70,7 @@ const Organization: React.FC<OrganizationProps> = ({
       </div>
       <div>
         {activeTab === 'users' && <UserManagement users={users} onSaveUser={onUserSave} onDeleteUser={onUserDelete} departments={departments} canManage={hasPermission(Permission.CanManageUsers)} />}
-        {activeTab === 'departments' && <DepartmentManagement departments={departments} onSaveDepartment={onSaveDepartment} onDeleteDepartment={onDeleteDepartment} users={users} canManage={hasPermission(Permission.CanManageDepartments)} />}
+        {activeTab === 'departments' && <DepartmentManagement departments={departments} onSaveDepartment={onDepartmentSave} onDeleteDepartment={onDepartmentDelete} users={users} canManage={hasPermission(Permission.CanManageDepartments)} />}
         {activeTab === 'permissions' && canManagePermissions && <PermissionsManagement rolePermissions={rolePermissions} onSave={onUpdateRolePermissions} />}
       </div>
     </div>
