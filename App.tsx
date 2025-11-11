@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { GoogleGenAI } from '@google/genai';
 import Layout from './components/Layout';
@@ -14,6 +15,7 @@ import LandingPage from './components/LandingPage';
 import ForcePasswordChangeModal from './components/ForcePasswordChangeModal';
 import { ToastContainer } from './components/Toast';
 
+// Fix: Import Status enum to resolve typing error.
 import { 
     User, 
     Task, 
@@ -22,7 +24,8 @@ import {
     CompanyResource,
     RolePermission,
     Conversation,
-    TeamChatMessage
+    TeamChatMessage,
+    Status
 } from './types';
 import { MOCK_DEPARTMENTS, MOCK_RESOURCES, MOCK_ROLE_PERMISSIONS, MOCK_TASKS, MOCK_USERS, MOCK_CONVERSATIONS, MOCK_TEAM_CHAT_MESSAGES } from './constants';
 
@@ -86,25 +89,8 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    try {
-      const usersExist = localStorage.getItem('smashx_users');
-      if (!usersExist || JSON.parse(usersExist).length === 0) {
-        saveData('smashx_users', MOCK_USERS);
-        saveData('smashx_tasks', MOCK_TASKS);
-        saveData('smashx_departments', MOCK_DEPARTMENTS);
-        saveData('smashx_notifications', []);
-        saveData('smashx_resources', MOCK_RESOURCES);
-        saveData('smashx_role_permissions', MOCK_ROLE_PERMISSIONS);
-        saveData('smashx_conversations', MOCK_CONVERSATIONS);
-        saveData('smashx_team_chat_messages', MOCK_TEAM_CHAT_MESSAGES);
-        saveData('smashx_appName', 'Zenith Task Manager');
-        saveData('smashx_logoUrl', '');
-      }
-    } catch (error) {
-      console.error("Failed to initialize data", error);
-    }
     loadDataFromStorage();
-  }, [loadDataFromStorage, saveData]);
+  }, [loadDataFromStorage]);
   
   // --- Data Persistence ---
   useEffect(() => { saveData('smashx_users', users) }, [users]);
@@ -177,7 +163,8 @@ const App: React.FC = () => {
   const handleReactivateTask = (taskId: string, reason: string, newDueDate: string) => {
     setTasks(prev => prev.map(t => t.id === taskId ? { 
         ...t, 
-        status: 'To Do', 
+        // Fix: Use Status enum member instead of string literal to match type.
+        status: Status.ToDo, 
         dueDate: newDueDate,
         completedAt: undefined,
         comments: [...t.comments, { id: `comment-${Date.now()}`, userId: currentUser!.id, content: `Reactivated: ${reason}`, createdAt: new Date().toISOString(), type: 'system' }]
@@ -185,14 +172,21 @@ const App: React.FC = () => {
   };
 
   const handleSendMessage = async (message: string) => {
-    setChatHistory(prev => [...prev, { role: 'user', parts: [{ text: message }] }]);
+    const newUserMessage: ChatMessage = { role: 'user', parts: [{ text: message }] };
+    setChatHistory(prev => [...prev, newUserMessage]);
     setIsBotTyping(true);
+
+    // Create history for API call using the current history from state and the new message.
+    // This fixes a stale closure bug where `chatHistory` didn't include the latest user message.
+    const historyForApi = [...chatHistory, newUserMessage];
 
     try {
       const ai = new GoogleGenAI({apiKey: process.env.API_KEY});
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
-        contents: `Given the following chat history: ${JSON.stringify(chatHistory.slice(-5))}, and the user's new message: "${message}", provide a helpful response.`,
+        // Per Gemini guidelines, send a structured chat history instead of a single string.
+        // We'll take the last 10 messages to keep the context relevant and the payload small.
+        contents: historyForApi.slice(-10),
       });
       
       setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: response.text }] }]);

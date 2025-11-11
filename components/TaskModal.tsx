@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { Task, User, Priority, Status, Role, Attachment, Comment, RolePermission, Permission, RecurrenceRule } from '../types';
 import { XIcon, PaperClipIcon, LinkIcon, CheckCircleIcon } from './icons/OutlineIcons';
@@ -264,7 +265,8 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, task, allTasks, 
     setIsAiLoading(true);
     try {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        const prompt = `Based on the user's rough idea for a task title: "${formState.title}", generate a concise, professional task title and a detailed task description. Return the response as a single valid JSON object with two keys: "title" and "description". Example: {"title": "Deploy Frontend to Production", "description": "Finalize the deployment process for the new React application, ensuring all tests pass and documentation is updated."}`;
+        // Fix: Simplified prompt, as responseSchema constrains the output to JSON.
+        const prompt = `Based on the user's rough idea for a task title: "${formState.title}", generate a concise, professional task title and a detailed task description.`;
         
         // Fix: Use responseSchema for reliable JSON output as per guidelines
         const response = await ai.models.generateContent({
@@ -288,7 +290,8 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, task, allTasks, 
             }
         });
 
-        const resultJson = JSON.parse(response.text);
+        // Fix: Per guidelines, trim whitespace from the response before parsing JSON.
+        const resultJson = JSON.parse(response.text.trim());
 
         setFormState(prev => ({
             ...prev,
