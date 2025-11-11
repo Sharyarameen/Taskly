@@ -76,6 +76,28 @@ service cloud.firestore {
                     If you see this guide on your live website, it usually means your Firebase project is not correctly set up for your domain. Please carefully review all steps below, especially <strong>Step 2 (Authorize Domain)</strong> and <strong>Step 3 (Database Rules)</strong>.
                 </div>
             </div>
+
+            {/* Troubleshooting Section */}
+            <div className="p-6 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-300 dark:border-red-800/50">
+                <h2 className="text-xl font-semibold flex items-center text-red-800 dark:text-red-200">
+                    Troubleshooting Common Errors
+                </h2>
+                <ul className="mt-4 space-y-3 text-sm">
+                    <li>
+                        <strong className="block text-red-700 dark:text-red-300">"Login failed: Invalid email or password."</strong>
+                        <p className="text-red-600 dark:text-red-400">This is the most common issue. It means you haven't created a user in Firebase yet. Please carefully follow all instructions in <strong className="underline">Step 1</strong> below.</p>
+                    </li>
+                    <li>
+                        <strong className="block text-red-700 dark:text-red-300">App shows a "Permission Denied" error after login.</strong>
+                        <p className="text-red-600 dark:text-red-400">Your database rules are too strict. Please follow <strong className="underline">Step 3</strong> to update them.</p>
+                    </li>
+                     <li>
+                        <strong className="block text-red-700 dark:text-red-300">Website doesn't load or shows a Firebase error.</strong>
+                        <p className="text-red-600 dark:text-red-400">This often means the domain is not authorized. Please double-check <strong className="underline">Step 2</strong>.</p>
+                    </li>
+                </ul>
+            </div>
+
             {/* Step 1: Authentication */}
             <div className="p-6 bg-base-200/50 dark:bg-dark-base-300/30 rounded-lg">
                 <h2 className="text-xl font-semibold flex items-center">
