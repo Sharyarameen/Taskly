@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { GoogleGenAI } from '@google/genai';
 import Layout from './components/Layout';
@@ -13,6 +14,8 @@ import Reports from './components/Reports';
 import LandingPage from './components/LandingPage';
 import ForcePasswordChangeModal from './components/ForcePasswordChangeModal';
 import { ToastContainer } from './components/Toast';
+import Installer from './components/Installer'; 
+import ConfigurationRequired from './components/ConfigurationRequired';
 
 import { 
     User, 
@@ -23,13 +26,13 @@ import {
     RolePermission,
     Conversation,
     TeamChatMessage,
-    Status
+    Status,
+    Role
 } from './types';
 
 // Firebase imports
-import { auth, db } from './firebaseConfig';
+import { auth, db, isFirebaseConfigured } from './firebaseConfig';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, updatePassword } from 'firebase/auth';
-// Fix: Import QuerySnapshot and DocumentData for explicit typing
 import { collection, onSnapshot, doc, getDoc, addDoc, updateDoc, deleteDoc, writeBatch, setDoc, query, where, getDocs, QuerySnapshot, DocumentData } from 'firebase/firestore';
 
 
@@ -41,6 +44,11 @@ export interface ChatMessage {
 }
 
 const App: React.FC = () => {
+  // Hard block if Firebase config is not set. This is the most critical check.
+  if (!isFirebaseConfigured) {
+      return <ConfigurationRequired />;
+  }
+  
   const [showLogin, setShowLogin] = useState(false);
   const [authInitializing, setAuthInitializing] = useState(true);
   
@@ -63,28 +71,48 @@ const App: React.FC = () => {
   const [isChatbotOpen, setIsChatbotOpen] = useState(false);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([{ role: 'model', parts: [{ text: 'Hello! I am your AI assistant. How can I help you today?' }] }]);
   const [isBotTyping, setIsBotTyping] = useState(false);
+  const [firestoreError, setFirestoreError] = useState<string | null>(null);
+  const [showInstaller, setShowInstaller] = useState(false);
   
   // Auth listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
         if (user && user.email) {
-            // Since mock data IDs don't match auth UIDs, we query by email.
-            // In a production app, it's better to use user.uid as the document ID.
-            const usersRef = collection(db, "users");
-            const q = query(usersRef, where("email", "==", user.email));
-            const querySnapshot = await getDocs(q);
-            
-            if (!querySnapshot.empty) {
-                const userDoc = querySnapshot.docs[0];
-                // Fix: Ensure userDoc.data() is an object before spreading.
-                const userData = userDoc.data();
-                if (userData) {
-                    setCurrentUser({ id: userDoc.id, ...userData } as User);
+            try {
+                const userDocRef = doc(db, "users", user.uid);
+                const userDocSnap = await getDoc(userDocRef);
+
+                if (userDocSnap.exists()) {
+                    const userData = userDocSnap.data();
+                    if (userData) {
+                        setCurrentUser({ id: userDocSnap.id, ...userData } as User);
+                    }
+                } else {
+                    console.log("User document not found for UID, creating one...");
+
+                    const usersRef = collection(db, "users");
+                    const allUsersSnapshot = await getDocs(usersRef);
+                    const isFirstUser = allUsersSnapshot.empty;
+
+                    const newUser: Omit<User, 'id'> = {
+                        name: user.displayName || user.email!.split('@')[0],
+                        email: user.email!,
+                        avatar: user.photoURL || `https://picsum.photos/seed/${user.uid}/100`,
+                        role: isFirstUser ? Role.Administrator : Role.Employee,
+                        departmentId: '',
+                        phone: '',
+                        createdAt: new Date().toISOString(),
+                        forcePasswordChange: false,
+                    };
+
+                    await setDoc(userDocRef, newUser);
+                    setCurrentUser({ id: user.uid, ...newUser });
                 }
-            } else {
-                console.error("User document not found in Firestore for email:", user.email);
-                await signOut(auth);
-                setCurrentUser(null);
+            } catch (error: any) {
+                console.error("Firestore permission error on user query:", { code: error.code, message: error.message });
+                if (error.code === 'permission-denied') {
+                    setFirestoreError('permission-denied');
+                }
             }
         } else {
             setCurrentUser(null);
@@ -96,7 +124,7 @@ const App: React.FC = () => {
 
   // Firestore listeners for real-time data
   useEffect(() => {
-    if (!currentUser) return; // Only fetch data if user is logged in
+    if (!currentUser) return;
 
     const collectionsToSync: { name: string; setter: (data: any) => void }[] = [
         { name: 'users', setter: setUsers },
@@ -110,27 +138,47 @@ const App: React.FC = () => {
     ];
 
     const unsubscribers = collectionsToSync.map(({ name, setter }) => {
-        // Fix: Explicitly type `snapshot` to resolve incorrect type inference.
-        return onSnapshot(collection(db, name), (snapshot: QuerySnapshot<DocumentData>) => {
-            const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
-            setter(data);
-        });
+        return onSnapshot(
+            collection(db, name), 
+            (snapshot: QuerySnapshot<DocumentData>) => {
+                const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+                setter(data);
+                if (firestoreError) setFirestoreError(null);
+            },
+            (error: any) => {
+                console.error(`Firestore permission error on collection '${name}':`, { code: error.code, message: error.message });
+                if (error.code === 'permission-denied') {
+                    setFirestoreError('permission-denied');
+                }
+            }
+        );
     });
 
     // Listener for app settings
     const settingsDocRef = doc(db, "settings", "app");
     const unsubscribeSettings = onSnapshot(settingsDocRef, (docSnap) => {
         if (docSnap.exists()) {
-            // Fix: Cast settings to a known type to avoid errors on property access.
             const settings = docSnap.data() as { appName?: string, logoUrl?: string };
             setAppName(settings?.appName || 'Zenith Task Manager');
             setLogoUrl(settings?.logoUrl || '');
+        }
+    },
+    (error: any) => {
+        console.error(`Firestore permission error on settings listener:`, { code: error.code, message: error.message });
+        if (error.code === 'permission-denied') {
+            setFirestoreError('permission-denied');
         }
     });
     unsubscribers.push(unsubscribeSettings);
 
     return () => unsubscribers.forEach(unsub => unsub());
-  }, [currentUser]);
+  }, [currentUser, firestoreError]);
+  
+  useEffect(() => {
+    if (firestoreError === 'permission-denied') {
+      setShowInstaller(true);
+    }
+  }, [firestoreError]);
 
 
   // --- Handlers ---
@@ -139,17 +187,29 @@ const App: React.FC = () => {
       await signInWithEmailAndPassword(auth, email, password);
       return { success: true };
     } catch (error: any) {
-      console.error("Firebase login error:", error);
+      console.error("Firebase login error:", { code: error.code, message: error.message });
+      
+      const isConfigError = 
+        error.code === 'auth/operation-not-allowed' ||
+        (error.message && error.message.includes('are-blocked')) ||
+        error.code === 'auth/invalid-credential' || 
+        error.code === 'auth/invalid-login-credentials' || 
+        error.code === 'auth/user-not-found';
+
+      if (isConfigError) {
+        setShowInstaller(true);
+      }
+
       if (error.code === 'auth/operation-not-allowed' || (error.message && error.message.includes('are-blocked'))) {
         return { 
           success: false, 
-          message: "Configuration Error: Email/Password sign-in is disabled.\n\nPlease enable it in the Firebase Console:\nAuthentication -> Sign-in method -> Email/Password." 
+          message: "Configuration Error: Email/Password sign-in is disabled.\n\nThe setup guide has been opened to help you." 
         };
       }
-      if (error.code === 'auth/invalid-credential') {
+      if (error.code === 'auth/invalid-credential' || error.code === 'auth/invalid-login-credentials' || error.code === 'auth/user-not-found') {
           return { 
               success: false, 
-              message: 'Login failed: Invalid email or password.\n\nSince you recently switched to a new Firebase project, this error usually means the test user (e.g., ali@example.com) has not been created yet.\n\nPlease go to your Firebase Console -> Authentication -> Users and add the user account.' 
+              message: 'Login failed: Invalid email or password.\n\nFor new setups, the guide has been opened to help you create a user.' 
             };
       }
       return { success: false, message: `Login failed: ${error.message}\n(Code: ${error.code})` };
@@ -222,7 +282,7 @@ const App: React.FC = () => {
       
       setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: response.text }] }]);
     } catch (error) {
-      console.error("Gemini API error:", error);
+      console.error("Gemini API error:", error instanceof Error ? error.message : String(error));
       setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: "Sorry, I encountered an error. Please try again." }] }]);
     } finally {
       setIsBotTyping(false);
@@ -234,11 +294,11 @@ const App: React.FC = () => {
       if (user) {
         try {
             await updatePassword(user, newPassword);
-            const userRef = doc(db, "users", userId); // assumes doc ID is the custom ID from mock data
+            const userRef = doc(db, "users", userId); 
             await updateDoc(userRef, { forcePasswordChange: false });
             setCurrentUser(prev => prev ? { ...prev, forcePasswordChange: false } : null);
-        } catch(e) {
-            console.error("Password update failed", e);
+        } catch(e: any) {
+            console.error("Password update failed", { code: e.code, message: e.message });
             alert("Failed to update password. You may need to log out and log back in.");
         }
       }
@@ -258,9 +318,9 @@ const App: React.FC = () => {
   const handleUserSave = async (userToSave: User | Omit<User, 'id' | 'createdAt'>) => {
     if ('id' in userToSave) {
         const { id, ...userData } = userToSave;
-        await setDoc(doc(db, 'users', id), userData);
+        await setDoc(doc(db, 'users', id), userData, { merge: true });
     } else {
-        alert("Adding new users from the app is not supported. Please create an account for the user in Firebase Authentication, then add their details here.");
+        alert("Adding new users from the app is not supported. Please create an account for the user in Firebase Authentication. They will appear here after their first login.");
     }
   };
 
@@ -359,42 +419,63 @@ const App: React.FC = () => {
     }
   };
 
-  if (authInitializing) {
+  const renderAppContent = () => {
+    if (authInitializing) {
       return (
           <div className="h-screen w-screen flex items-center justify-center bg-base-200 dark:bg-dark-base-100">
               <div className="w-16 h-16 border-4 border-brand-primary border-t-transparent rounded-full animate-spin"></div>
           </div>
       );
-  }
+    }
+    
+    if (!currentUser) {
+      return showLogin ? <Login onLogin={handleLogin} appName={appName} logoUrl={logoUrl} /> : <LandingPage onShowLogin={() => setShowLogin(true)} appName={appName} />;
+    }
+    
+    if (currentUser.forcePasswordChange) {
+        return <ForcePasswordChangeModal currentUser={currentUser} onPasswordChanged={handlePasswordChanged} />;
+    }
 
-  if (!currentUser) {
-    return showLogin ? <Login onLogin={handleLogin} appName={appName} logoUrl={logoUrl} /> : <LandingPage onShowLogin={() => setShowLogin(true)} appName={appName} />;
-  }
-  
-  if (currentUser.forcePasswordChange) {
-      return <ForcePasswordChangeModal currentUser={currentUser} onPasswordChanged={handlePasswordChanged} />;
-  }
+    if (firestoreError === 'permission-denied') {
+        return (
+            <div className="h-screen w-screen flex flex-col items-center justify-center bg-base-200 dark:bg-dark-base-100 p-4 text-center">
+                <h2 className="text-2xl font-bold text-red-500">Permission Denied</h2>
+                <p className="mt-2 text-base-content-secondary dark:text-dark-base-content-secondary">
+                    Your application does not have permission to access the database.
+                </p>
+                <p className="mt-1 text-base-content-secondary dark:text-dark-base-content-secondary">
+                    The setup guide has been opened to help you resolve this.
+                </p>
+            </div>
+        );
+    }
+    
+    return (
+        <Layout 
+            currentUser={currentUser} 
+            onLogout={handleLogout}
+            navigateTo={setCurrentView}
+            currentView={currentView}
+            isChatbotOpen={isChatbotOpen}
+            setIsChatbotOpen={setIsChatbotOpen}
+            chatHistory={chatHistory}
+            onSendMessage={handleSendMessage}
+            isBotTyping={isBotTyping}
+            notifications={notifications}
+            onMarkNotificationsAsRead={handleMarkNotificationsAsRead}
+            rolePermissions={rolePermissions}
+            appName={appName}
+            logoUrl={logoUrl}
+        >
+            {renderCurrentView()}
+        </Layout>
+    );
+  };
   
   return (
     <>
-      <Layout 
-        currentUser={currentUser} 
-        onLogout={handleLogout}
-        navigateTo={setCurrentView}
-        currentView={currentView}
-        isChatbotOpen={isChatbotOpen}
-        setIsChatbotOpen={setIsChatbotOpen}
-        chatHistory={chatHistory}
-        onSendMessage={handleSendMessage}
-        isBotTyping={isBotTyping}
-        notifications={notifications}
-        onMarkNotificationsAsRead={handleMarkNotificationsAsRead}
-        rolePermissions={rolePermissions}
-        appName={appName}
-        logoUrl={logoUrl}
-      >
-        {renderCurrentView()}
-      </Layout>
+      {renderAppContent()}
+      {showInstaller && <Installer onClose={() => setShowInstaller(false)} />}
       <ToastContainer 
         toasts={toasts}
         onRemove={(id) => setToasts(prev => prev.filter(t => t.id !== id))}

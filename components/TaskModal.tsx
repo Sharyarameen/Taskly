@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { Task, User, Priority, Status, Role, Attachment, Comment, RolePermission, Permission, RecurrenceRule } from '../types';
 import { XIcon, PaperClipIcon, LinkIcon, CheckCircleIcon } from './icons/OutlineIcons';
@@ -265,10 +263,8 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, task, allTasks, 
     setIsAiLoading(true);
     try {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        // Fix: Simplified prompt, as responseSchema constrains the output to JSON.
         const prompt = `Based on the user's rough idea for a task title: "${formState.title}", generate a concise, professional task title and a detailed task description.`;
         
-        // Fix: Use responseSchema for reliable JSON output as per guidelines
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
@@ -289,9 +285,16 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, task, allTasks, 
                 }
             }
         });
+        
+        let jsonStr = response.text.trim();
+        // Handle potential markdown code fences from the model
+        if (jsonStr.startsWith('```json')) {
+            jsonStr = jsonStr.substring(7, jsonStr.length - 3).trim();
+        } else if (jsonStr.startsWith('```')) {
+            jsonStr = jsonStr.substring(3, jsonStr.length - 3).trim();
+        }
 
-        // Fix: Per guidelines, trim whitespace from the response before parsing JSON.
-        const resultJson = JSON.parse(response.text.trim());
+        const resultJson = JSON.parse(jsonStr);
 
         setFormState(prev => ({
             ...prev,
@@ -300,7 +303,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, task, allTasks, 
         }));
 
     } catch (error) {
-        console.error("AI Assistant Error:", error);
+        console.error("AI Assistant Error:", error instanceof Error ? error.message : String(error));
         alert("Failed to get suggestions from the AI Assistant. Please check the console for more details.");
     } finally {
         setIsAiLoading(false);

@@ -10,8 +10,8 @@ interface LoginProps {
 }
 
 const Login: React.FC<LoginProps> = ({ onLogin, appName, logoUrl }) => {
-  const [email, setEmail] = useState('ali@example.com');
-  const [password, setPassword] = useState('password');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -27,15 +27,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, appName, logoUrl }) => {
   };
   
   const handleGoogleLogin = async () => {
-    setLoading(true);
-    setError('');
-    // Simulate login with a predefined Google user (ali exists in mock data)
-    // In a real app, this would trigger the Google Auth flow.
-    const result = await onLogin('ali@example.com', 'password');
-    if (!result.success) {
-      setError(result.message || 'An unknown error occurred.');
-    }
-    setLoading(false);
+    alert("Google Login has not been configured for this project yet.");
   };
 
   return (
@@ -56,7 +48,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, appName, logoUrl }) => {
                 type="email"
                 required
                 className="block w-full pl-10 pr-3 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-purple-500 focus:border-purple-500 transition"
-                placeholder="ali@example.com"
+                placeholder="your-email@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />

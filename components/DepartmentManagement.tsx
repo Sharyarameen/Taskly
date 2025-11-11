@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect } from 'react';
 import { Department, User, Role, RolePermission, Permission } from '../types';
 import { PlusIcon, TrashIcon, PencilIcon } from './icons/SolidIcons';
@@ -83,11 +84,6 @@ const UserManagement = ({ users, onSaveUser, onDeleteUser, departments, canManag
     const [isUserModalOpen, setIsUserModalOpen] = useState(false);
     const [editingUser, setEditingUser] = useState<User | null>(null);
 
-    const handleAddUser = () => {
-        setEditingUser(null);
-        setIsUserModalOpen(true);
-    };
-
     const handleEditUser = (user: User) => {
         setEditingUser(user);
         setIsUserModalOpen(true);
@@ -100,11 +96,11 @@ const UserManagement = ({ users, onSaveUser, onDeleteUser, departments, canManag
 
     return (
         <div>
-            <div className="flex justify-end mb-4">
-                 {canManage && <button onClick={handleAddUser} className="flex items-center gap-2 px-4 py-2 bg-brand-primary text-white font-semibold rounded-lg shadow-md hover:bg-brand-secondary">
-                    <PlusIcon className="w-5 h-5" /> Add User
-                </button>}
-            </div>
+            {canManage && (
+                <div className="mb-4 p-3 text-sm bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200 rounded-lg border border-blue-200 dark:border-blue-800/50">
+                    <strong>How to Add Users:</strong> New users must first be created in the Firebase Authentication console. After they log in for the first time, they will automatically appear in this list, and you can then edit their details (like Role and Department) here.
+                </div>
+            )}
             <div className="bg-base-100 dark:bg-dark-base-200 shadow-md rounded-lg overflow-x-auto">
                  <table className="min-w-full divide-y divide-base-200 dark:divide-dark-base-300">
                     <thead className="bg-base-200/50 dark:bg-dark-base-300/50">
