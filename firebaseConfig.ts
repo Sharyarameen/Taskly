@@ -3,15 +3,15 @@ import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
 // --- IMPORTANT ---
-// This is a placeholder Firebase configuration.
-// You MUST replace it with your own project's configuration details for the app to work.
+// PASTE YOUR FIREBASE CONFIGURATION OBJECT HERE
+// This file is in .gitignore, so your keys will NOT be uploaded to GitHub.
 //
 // To get your config:
 // 1. Go to your Firebase project console: https://console.firebase.google.com/
-// 2. In the top left, click the gear icon to go to "Project settings".
-// 3. In the "Your apps" card, select your web app (or create one if you haven't).
-// 4. Under "SDK setup and configuration", select the "Config" option.
-// 5. Copy the entire 'firebaseConfig' object and paste it below, replacing the placeholder.
+// 2. Click the gear icon (Project settings).
+// 3. Under "Your apps", find your web app.
+// 4. In "SDK setup and configuration", choose "Config".
+// 5. Copy the 'firebaseConfig' object and paste it below.
 
 const firebaseConfig = {
   apiKey: "AIzaSyCvzw0PIlIMG5pvuysGCssCXkoxjEJJMss",
@@ -22,15 +22,16 @@ const firebaseConfig = {
   appId: "1:379091476907:web:9ea03f6d6ca3ddc659b2ee"
 };
 
-// This check prevents the app from running with placeholder credentials.
-export const isFirebaseConfigured = firebaseConfig.apiKey !== "REPLACE_WITH_YOUR_API_KEY" && firebaseConfig.projectId !== "REPLACE_WITH_YOUR_PROJECT_ID";
-
+// This check helps the app show a friendly error if the config is not filled out.
+export const isFirebaseConfigured = firebaseConfig.apiKey !== "PASTE_YOUR_API_KEY_HERE" && firebaseConfig.projectId !== "PASTE_YOUR_PROJECT_ID_HERE";
 
 // Initialize Firebase
-const app = initializeApp(firebaseConfig);
+const app = isFirebaseConfigured ? initializeApp(firebaseConfig) : null;
 
-// Initialize Cloud Firestore and get a reference to the service
-export const db = getFirestore(app);
+// Initialize services only if Firebase is configured
+export const db = app ? getFirestore(app) : null;
+export const auth = app ? getAuth(app) : null;
 
-// Initialize Firebase Authentication and get a reference to the service
-export const auth = getAuth(app);
+if (!isFirebaseConfigured) {
+    console.warn("FIREBASE IS NOT CONFIGURED. Please update firebaseConfig.ts with your project credentials.");
+}

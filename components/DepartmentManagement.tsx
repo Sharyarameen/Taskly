@@ -18,7 +18,6 @@ interface OrganizationProps {
 }
 
 const Organization: React.FC<OrganizationProps> = ({ 
-  // Fix: Corrected typo from onSaveDepartment to onDepartmentSave to match prop definition.
   departments, users, onUserSave, onUserDelete, onDepartmentSave, onDepartmentDelete, 
   currentUser, rolePermissions, onUpdateRolePermissions 
 }) => {
@@ -73,7 +72,7 @@ const Organization: React.FC<OrganizationProps> = ({
       </div>
       <div>
         {activeTab === 'users' && <UserManagement users={users} onSaveUser={onUserSave} onDeleteUser={onUserDelete} departments={departments} canManage={hasPermission(Permission.CanManageUsers)} />}
-        {activeTab === 'departments' && <DepartmentManagement departments={departments} onDepartmentSave={onDepartmentSave} onDeleteDepartment={onDeleteDepartment} users={users} canManage={hasPermission(Permission.CanManageDepartments)} />}
+        {activeTab === 'departments' && <DepartmentManagement departments={departments} onDepartmentSave={onDepartmentSave} onDepartmentDelete={onDepartmentDelete} users={users} canManage={hasPermission(Permission.CanManageDepartments)} />}
         {activeTab === 'permissions' && canManagePermissions && <PermissionsManagement rolePermissions={rolePermissions} onSave={onUpdateRolePermissions} />}
       </div>
     </div>
@@ -163,7 +162,7 @@ const UserManagement = ({ users, onSaveUser, onDeleteUser, departments, canManag
 }
 
 // --- Department Management ---
-const DepartmentManagement = ({ departments, onDepartmentSave, onDeleteDepartment, users, canManage }: { departments: Department[], onDepartmentSave: OrganizationProps['onDepartmentSave'], onDeleteDepartment: OrganizationProps['onDepartmentDelete'], users: User[], canManage: boolean }) => {
+const DepartmentManagement = ({ departments, onDepartmentSave, onDepartmentDelete, users, canManage }: { departments: Department[], onDepartmentSave: OrganizationProps['onDepartmentSave'], onDepartmentDelete: OrganizationProps['onDepartmentDelete'], users: User[], canManage: boolean }) => {
   const [newDeptName, setNewDeptName] = useState('');
   const [editingDeptId, setEditingDeptId] = useState<string | null>(null);
   const [editingDeptName, setEditingDeptName] = useState('');
@@ -208,7 +207,7 @@ const DepartmentManagement = ({ departments, onDepartmentSave, onDeleteDepartmen
                   <button onClick={() => setEditingDeptId(null)} className="px-3 py-1 bg-slate-500 text-white rounded hover:bg-slate-600">Cancel</button>
                 </>
               ) : <button onClick={() => { setEditingDeptId(dept.id); setEditingDeptName(dept.name); }} className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600">Edit</button>}
-              <button onClick={() => onDeleteDepartment(dept.id)} className="p-2 bg-red-500 text-white rounded hover:bg-red-600"><TrashIcon className="w-4 h-4" /></button>
+              <button onClick={() => onDepartmentDelete(dept.id)} className="p-2 bg-red-500 text-white rounded hover:bg-red-600"><TrashIcon className="w-4 h-4" /></button>
             </div>}
           </div>
           <h3 className="font-semibold mb-2 text-sm text-base-content-secondary dark:text-dark-base-content-secondary">Members ({users.filter(u => u.departmentId === dept.id).length})</h3>
