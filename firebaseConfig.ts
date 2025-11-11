@@ -14,7 +14,7 @@ const firebaseConfig = {
   projectId: "taskly-3cfb8",
   storageBucket: "taskly-3cfb8.firebasestorage.app",
   messagingSenderId: "379091476907",
-  appId: "1:379091476907:web:9ea03f6d6ca3ddc659b2ee"
+  appId: "1:379091476907:web:9ea03f6d6ca3dsfsdddc659b2ee"
 };
 
 // This check ensures the app shows a setup guide if the environment variables are not set.
