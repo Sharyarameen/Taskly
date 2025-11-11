@@ -2,6 +2,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { Department, User, Role, RolePermission, Permission } from '../types';
 import { PlusIcon, TrashIcon, PencilIcon } from './icons/SolidIcons';
+import { InformationCircleIcon, XIcon } from './icons/OutlineIcons';
 import PermissionsManagement from './PermissionsManagement';
 
 interface OrganizationProps {
@@ -17,6 +18,7 @@ interface OrganizationProps {
 }
 
 const Organization: React.FC<OrganizationProps> = ({ 
+  // Fix: Corrected typo from onSaveDepartment to onDepartmentSave to match prop definition.
   departments, users, onUserSave, onUserDelete, onDepartmentSave, onDepartmentDelete, 
   currentUser, rolePermissions, onUpdateRolePermissions 
 }) => {
@@ -71,7 +73,7 @@ const Organization: React.FC<OrganizationProps> = ({
       </div>
       <div>
         {activeTab === 'users' && <UserManagement users={users} onSaveUser={onUserSave} onDeleteUser={onUserDelete} departments={departments} canManage={hasPermission(Permission.CanManageUsers)} />}
-        {activeTab === 'departments' && <DepartmentManagement departments={departments} onSaveDepartment={onDepartmentSave} onDeleteDepartment={onDepartmentDelete} users={users} canManage={hasPermission(Permission.CanManageDepartments)} />}
+        {activeTab === 'departments' && <DepartmentManagement departments={departments} onDepartmentSave={onDepartmentSave} onDeleteDepartment={onDeleteDepartment} users={users} canManage={hasPermission(Permission.CanManageDepartments)} />}
         {activeTab === 'permissions' && canManagePermissions && <PermissionsManagement rolePermissions={rolePermissions} onSave={onUpdateRolePermissions} />}
       </div>
     </div>
@@ -83,6 +85,19 @@ const UserManagement = ({ users, onSaveUser, onDeleteUser, departments, canManag
     
     const [isUserModalOpen, setIsUserModalOpen] = useState(false);
     const [editingUser, setEditingUser] = useState<User | null>(null);
+    const [showUserInfo, setShowUserInfo] = useState(false);
+
+    useEffect(() => {
+        const isDismissed = localStorage.getItem('zenith_user_info_dismissed');
+        if (isDismissed !== 'true') {
+            setShowUserInfo(true);
+        }
+    }, []);
+
+    const handleDismissInfo = () => {
+        setShowUserInfo(false);
+        localStorage.setItem('zenith_user_info_dismissed', 'true');
+    };
 
     const handleEditUser = (user: User) => {
         setEditingUser(user);
@@ -96,9 +111,17 @@ const UserManagement = ({ users, onSaveUser, onDeleteUser, departments, canManag
 
     return (
         <div>
-            {canManage && (
-                <div className="mb-4 p-3 text-sm bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200 rounded-lg border border-blue-200 dark:border-blue-800/50">
-                    <strong>How to Add Users:</strong> New users must first be created in the Firebase Authentication console. After they log in for the first time, they will automatically appear in this list, and you can then edit their details (like Role and Department) here.
+            {canManage && showUserInfo && (
+                <div className="mb-4 p-3 text-sm bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200 rounded-lg border border-blue-200 dark:border-blue-800/50 flex items-start justify-between">
+                    <div className="flex">
+                        <InformationCircleIcon className="w-5 h-5 mr-2 mt-0.5 flex-shrink-0"/>
+                        <div>
+                            <strong>How to Add Users:</strong> New users must first be created in the Firebase Authentication console. After they log in for the first time, they will automatically appear in this list, and you can then edit their details (like Role and Department) here.
+                        </div>
+                    </div>
+                    <button onClick={handleDismissInfo} className="p-1 rounded-full hover:bg-blue-100 dark:hover:bg-blue-900/50 ml-2">
+                        <XIcon className="w-4 h-4"/>
+                    </button>
                 </div>
             )}
             <div className="bg-base-100 dark:bg-dark-base-200 shadow-md rounded-lg overflow-x-auto">
@@ -140,20 +163,20 @@ const UserManagement = ({ users, onSaveUser, onDeleteUser, departments, canManag
 }
 
 // --- Department Management ---
-const DepartmentManagement = ({ departments, onSaveDepartment, onDeleteDepartment, users, canManage }: { departments: Department[], onSaveDepartment: OrganizationProps['onDepartmentSave'], onDeleteDepartment: OrganizationProps['onDepartmentDelete'], users: User[], canManage: boolean }) => {
+const DepartmentManagement = ({ departments, onDepartmentSave, onDeleteDepartment, users, canManage }: { departments: Department[], onDepartmentSave: OrganizationProps['onDepartmentSave'], onDeleteDepartment: OrganizationProps['onDepartmentDelete'], users: User[], canManage: boolean }) => {
   const [newDeptName, setNewDeptName] = useState('');
   const [editingDeptId, setEditingDeptId] = useState<string | null>(null);
   const [editingDeptName, setEditingDeptName] = useState('');
 
   const handleAddDepartment = () => {
     if (newDeptName.trim()) {
-      onSaveDepartment({ name: newDeptName.trim() });
+      onDepartmentSave({ name: newDeptName.trim() });
       setNewDeptName('');
     }
   };
 
   const handleUpdateDepartment = (id: string) => {
-    onSaveDepartment({ id, name: editingDeptName.trim() });
+    onDepartmentSave({ id, name: editingDeptName.trim() });
     setEditingDeptId(null);
   };
 
