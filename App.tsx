@@ -76,6 +76,14 @@ const App: React.FC = () => {
   
   // Auth listener
   useEffect(() => {
+    // Add a guard to prevent a crash if Firebase fails to initialize
+    // even if the config variables are present.
+    if (!auth) {
+        console.error("Firebase Auth service is not available. Please check your Firebase project configuration and keys.");
+        setAuthInitializing(false); // Ensure the app doesn't stay in a loading state.
+        return;
+    }
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
         if (user && user.email) {
             try {

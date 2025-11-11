@@ -9,14 +9,13 @@ import { getAuth } from "firebase/auth";
 // DO NOT PASTE YOUR KEYS DIRECTLY INTO THIS FILE FOR DEPLOYMENT.
 
 const firebaseConfig = {
-  apiKey: process.env.FIREBASE_API_KEY,
-  authDomain: process.env.FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.FIREBASE_PROJECT_ID,
-  storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.FIREBASE_APP_ID,
+  apiKey: "AIzaSyCvzw0PIlIMG5pvuysGCssCXkoxjEJJMss",
+  authDomain: "taskly-3cfb8.firebaseapp.com",
+  projectId: "taskly-3cfb8",
+  storageBucket: "taskly-3cfb8.firebasestorage.app",
+  messagingSenderId: "379091476907",
+  appId: "1:379091476907:web:9ea03f6d6ca3ddc659b2ee"
 };
-
 
 // This check ensures the app shows a setup guide if the environment variables are not set.
 export const isFirebaseConfigured = 
