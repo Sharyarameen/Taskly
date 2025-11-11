@@ -3,7 +3,7 @@ import { LogoIcon } from './icons/LogoIcon';
 import { MOCK_ROLE_PERMISSIONS } from '../constants';
 import { db } from '../firebaseConfig';
 import { writeBatch, doc } from 'firebase/firestore';
-import { XIcon } from './icons/OutlineIcons';
+import { XIcon, InformationCircleIcon } from './icons/OutlineIcons';
 
 interface InstallerProps {
     onClose: () => void;
@@ -48,7 +48,7 @@ service cloud.firestore {
     } catch (error: any)
       {
       console.error("Database seeding failed:", { code: error.code, message: error.message });
-      setSeedingError(`Seeding failed: ${error.message}. This could be a permission issue. Please ensure you have completed Step 2 correctly.`);
+      setSeedingError(`Seeding failed: ${error.message}. This could be a permission issue. Please ensure you have completed Step 3 correctly.`);
     } finally {
       setIsSeeding(false);
     }
@@ -70,6 +70,12 @@ service cloud.firestore {
         </div>
 
         <div className="space-y-6 overflow-y-auto pr-4 -mr-4">
+            <div className="mb-4 p-3 text-sm bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200 rounded-lg border border-blue-200 dark:border-blue-800/50 flex items-start">
+                <InformationCircleIcon className="w-5 h-5 mr-2 mt-0.5 flex-shrink-0"/>
+                <div>
+                    If you see this guide on your live website, it usually means your Firebase project is not correctly set up for your domain. Please carefully review all steps below, especially <strong>Step 2 (Authorize Domain)</strong> and <strong>Step 3 (Database Rules)</strong>.
+                </div>
+            </div>
             {/* Step 1: Authentication */}
             <div className="p-6 bg-base-200/50 dark:bg-dark-base-300/30 rounded-lg">
                 <h2 className="text-xl font-semibold flex items-center">
@@ -87,10 +93,27 @@ service cloud.firestore {
                 </ol>
             </div>
 
-            {/* Step 2: Firestore Rules */}
+            {/* Step 2: Authorize Domain */}
+            <div className="p-6 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-300 dark:border-yellow-800/50">
+                <h2 className="text-xl font-semibold flex items-center text-yellow-800 dark:text-yellow-200">
+                    <span className="bg-yellow-500 text-white w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm mr-3">2</span>
+                    Authorize Your Domain (Very Important!)
+                </h2>
+                <p className="mt-2 text-sm text-yellow-700 dark:text-yellow-300">
+                    Since you are using a custom domain (`taskly.kitabistaninternational.com`), you **must** tell Firebase that it's allowed to connect.
+                </p>
+                <ol className="list-decimal list-inside mt-4 space-y-2 text-sm">
+                    <li>In your Firebase Console, navigate to <strong>Authentication</strong> &rarr; <strong>Settings</strong> tab.</li>
+                    <li>Under the "Authorized domains" section, click <strong>Add domain</strong>.</li>
+                    <li>Enter your domain: <code className="bg-yellow-200 dark:bg-yellow-800/50 px-1 rounded">kitabistaninternational.com</code> and click "Add".</li>
+                    <li className="font-bold">Note: Only add the main domain, not the `taskly.` part.</li>
+                </ol>
+            </div>
+
+            {/* Step 3: Firestore Rules */}
              <div className="p-6 bg-base-200/50 dark:bg-dark-base-300/30 rounded-lg">
                 <h2 className="text-xl font-semibold flex items-center">
-                    <span className="bg-brand-primary text-white w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm mr-3">2</span>
+                    <span className="bg-brand-primary text-white w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm mr-3">3</span>
                     Set Up Database Permissions
                 </h2>
                 <p className="mt-2 text-sm text-base-content-secondary dark:text-dark-base-content-secondary">
@@ -107,10 +130,10 @@ service cloud.firestore {
                 <p className="mt-2 text-xs text-orange-500"><strong>Warning:</strong> These rules are for development only and are not secure for a production environment.</p>
             </div>
 
-            {/* Step 3: Seed Configuration */}
+            {/* Step 4: Seed Configuration */}
             <div className="p-6 bg-base-200/50 dark:bg-dark-base-300/30 rounded-lg">
                 <h2 className="text-xl font-semibold flex items-center">
-                    <span className="bg-brand-primary text-white w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm mr-3">3</span>
+                    <span className="bg-brand-primary text-white w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm mr-3">4</span>
                     Seed Initial Configuration
                 </h2>
                 <p className="mt-2 text-sm text-base-content-secondary dark:text-dark-base-content-secondary">
