@@ -1,6 +1,7 @@
 
 
-import React, { useState, useEffect, useCallback } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { GoogleGenAI } from '@google/genai';
 import Layout from './components/Layout';
 import Login from './components/Login';
@@ -15,7 +16,6 @@ import LandingPage from './components/LandingPage';
 import ForcePasswordChangeModal from './components/ForcePasswordChangeModal';
 import { ToastContainer } from './components/Toast';
 
-// Fix: Import Status enum to resolve typing error.
 import { 
     User, 
     Task, 
@@ -27,7 +27,12 @@ import {
     TeamChatMessage,
     Status
 } from './types';
-import { MOCK_DEPARTMENTS, MOCK_RESOURCES, MOCK_ROLE_PERMISSIONS, MOCK_TASKS, MOCK_USERS, MOCK_CONVERSATIONS, MOCK_TEAM_CHAT_MESSAGES } from './constants';
+
+// Firebase imports
+import { auth, db } from './firebaseConfig';
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut, updatePassword } from 'firebase/auth';
+import { collection, onSnapshot, doc, getDoc, addDoc, updateDoc, deleteDoc, writeBatch, setDoc, query, where, getDocs } from 'firebase/firestore';
+
 
 export type View = 'dashboard' | 'tasks' | 'calendar' | 'chat' | 'organization' | 'resources' | 'reports' | 'settings';
 
@@ -37,7 +42,8 @@ export interface ChatMessage {
 }
 
 const App: React.FC = () => {
-  const [showLogin, setShowLogin] = useState(true);
+  const [showLogin, setShowLogin] = useState(false);
+  const [authInitializing, setAuthInitializing] = useState(true);
   
   // App Data State
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -59,116 +65,128 @@ const App: React.FC = () => {
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([{ role: 'model', parts: [{ text: 'Hello! I am your AI assistant. How can I help you today?' }] }]);
   const [isBotTyping, setIsBotTyping] = useState(false);
   
-  const saveData = useCallback(<T,>(key: string, data: T) => {
-    localStorage.setItem(key, JSON.stringify(data));
-  }, []);
-
-  const loadDataFromStorage = useCallback(() => {
-    try {
-      setUsers(JSON.parse(localStorage.getItem('smashx_users') || '[]'));
-      setTasks(JSON.parse(localStorage.getItem('smashx_tasks') || '[]'));
-      setDepartments(JSON.parse(localStorage.getItem('smashx_departments') || '[]'));
-      setNotifications(JSON.parse(localStorage.getItem('smashx_notifications') || '[]'));
-      setResources(JSON.parse(localStorage.getItem('smashx_resources') || '[]'));
-      setRolePermissions(JSON.parse(localStorage.getItem('smashx_role_permissions') || '[]'));
-      setConversations(JSON.parse(localStorage.getItem('smashx_conversations') || '[]'));
-      setTeamChatMessages(JSON.parse(localStorage.getItem('smashx_team_chat_messages') || '[]'));
-      setAppName(JSON.parse(localStorage.getItem('smashx_appName') || '"Zenith Task Manager"'));
-      setLogoUrl(JSON.parse(localStorage.getItem('smashx_logoUrl') || '""'));
-      
-      const loggedInUserId = localStorage.getItem('smashx_currentUser');
-      if (loggedInUserId) {
-        const allUsers: User[] = JSON.parse(localStorage.getItem('smashx_users') || '[]');
-        const user = allUsers.find(u => u.id === loggedInUserId);
-        setCurrentUser(user || null);
-      }
-    } catch (error) {
-      console.error("Failed to load data from localStorage", error);
-      // Might want to clear storage if it's corrupted
-    }
-  }, []);
-
+  // Auth listener
   useEffect(() => {
-    loadDataFromStorage();
-  }, [loadDataFromStorage]);
-  
-  // --- Data Persistence ---
-  useEffect(() => { saveData('smashx_users', users) }, [users]);
-  useEffect(() => { saveData('smashx_tasks', tasks) }, [tasks]);
-  useEffect(() => { saveData('smashx_departments', departments) }, [departments]);
-  useEffect(() => { saveData('smashx_notifications', notifications) }, [notifications]);
-  useEffect(() => { saveData('smashx_resources', resources) }, [resources]);
-  useEffect(() => { saveData('smashx_role_permissions', rolePermissions) }, [rolePermissions]);
-  useEffect(() => { saveData('smashx_team_chat_messages', teamChatMessages) }, [teamChatMessages]);
-  useEffect(() => { saveData('smashx_conversations', conversations) }, [conversations]);
-  useEffect(() => { saveData('smashx_appName', appName) }, [appName]);
-  useEffect(() => { saveData('smashx_logoUrl', logoUrl) }, [logoUrl]);
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+        if (user && user.email) {
+            // Since mock data IDs don't match auth UIDs, we query by email.
+            // In a production app, it's better to use user.uid as the document ID.
+            const usersRef = collection(db, "users");
+            const q = query(usersRef, where("email", "==", user.email));
+            const querySnapshot = await getDocs(q);
+            
+            if (!querySnapshot.empty) {
+                const userDoc = querySnapshot.docs[0];
+                setCurrentUser({ id: userDoc.id, ...userDoc.data() } as User);
+            } else {
+                console.error("User document not found in Firestore for email:", user.email);
+                await signOut(auth);
+                setCurrentUser(null);
+            }
+        } else {
+            setCurrentUser(null);
+        }
+        setAuthInitializing(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Firestore listeners for real-time data
+  useEffect(() => {
+    if (!currentUser) return; // Only fetch data if user is logged in
+
+    const collectionsToSync: { name: string; setter: (data: any) => void }[] = [
+        { name: 'users', setter: setUsers },
+        { name: 'tasks', setter: setTasks },
+        { name: 'departments', setter: setDepartments },
+        { name: 'resources', setter: setResources },
+        { name: 'role_permissions', setter: setRolePermissions },
+        { name: 'conversations', setter: setConversations },
+        { name: 'team_chat_messages', setter: setTeamChatMessages },
+        { name: 'notifications', setter: setNotifications },
+    ];
+
+    const unsubscribers = collectionsToSync.map(({ name, setter }) => {
+        return onSnapshot(collection(db, name), (snapshot) => {
+            const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+            setter(data);
+        });
+    });
+
+    // Listener for app settings
+    const settingsDocRef = doc(db, "settings", "app");
+    const unsubscribeSettings = onSnapshot(settingsDocRef, (docSnap) => {
+        if (docSnap.exists()) {
+            const settings = docSnap.data();
+            setAppName(settings.appName || 'Zenith Task Manager');
+            setLogoUrl(settings.logoUrl || '');
+        }
+    });
+    unsubscribers.push(unsubscribeSettings);
+
+    return () => unsubscribers.forEach(unsub => unsub());
+  }, [currentUser]);
+
 
   // --- Handlers ---
   const handleLogin = async (email: string, password: string): Promise<boolean> => {
-    // Note: In a real app, this logic would be on a secure backend.
-    const userFromStorage: User[] = JSON.parse(localStorage.getItem('smashx_users') || '[]');
-    const user = userFromStorage.find(u => u.email === email && u.password === password);
-    if (user) {
-      setCurrentUser(user);
-      localStorage.setItem('smashx_currentUser', user.id);
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
       return true;
+    } catch (error) {
+      console.error("Firebase login error:", error);
+      return false;
     }
-    return false;
   };
 
-  const handleLogout = () => {
-    setCurrentUser(null);
-    localStorage.removeItem('smashx_currentUser');
+  const handleLogout = async () => {
+    await signOut(auth);
     setShowLogin(false); // Go back to landing page
   };
   
-  const addNotification = (message: string, link?: Notification['link']) => {
-    const newNotif: Notification = {
-      id: `notif-${Date.now()}`,
-      message,
-      link,
-      isRead: false,
-      createdAt: new Date().toISOString(),
-    };
-    setNotifications(prev => [...prev, newNotif]);
-    setToasts(prev => [...prev, newNotif]);
+  const addNotification = async (message: string, link?: Notification['link']) => {
+    const newNotifData: Omit<Notification, 'id'> = { message, link, isRead: false, createdAt: new Date().toISOString() };
+    const docRef = await addDoc(collection(db, 'notifications'), newNotifData);
+    setToasts(prev => [...prev, { ...newNotifData, id: docRef.id }]);
   };
 
-  const handleCreateTask = (task: Omit<Task, 'id' | 'reporterId' | 'viewedBy'>) => {
+  const handleCreateTask = async (task: Omit<Task, 'id' | 'reporterId' | 'viewedBy'>) => {
     if (!currentUser) return;
-    const newTask: Task = {
+    const newTask: Omit<Task, 'id'> = {
         ...task,
-        id: `task-${Date.now()}`,
         reporterId: currentUser.id,
         viewedBy: [currentUser.id],
         createdAt: new Date().toISOString(),
         comments: [],
     };
-    setTasks(prev => [...prev, newTask]);
-    addNotification(`New task created: ${newTask.title}`, { type: 'task', id: newTask.id });
+    const docRef = await addDoc(collection(db, "tasks"), newTask);
+    addNotification(`New task created: ${newTask.title}`, { type: 'task', id: docRef.id });
   };
   
-  const handleUpdateTask = (updatedTask: Task) => {
-    setTasks(prev => prev.map(t => t.id === updatedTask.id ? updatedTask : t));
+  const handleUpdateTask = async (updatedTask: Task) => {
+    const { id, ...taskData } = updatedTask;
+    await setDoc(doc(db, "tasks", id), taskData);
     addNotification(`Task updated: ${updatedTask.title}`, { type: 'task', id: updatedTask.id });
   };
 
-  const handleTaskRead = (task: Task) => {
+  const handleTaskRead = async (task: Task) => {
     if (!currentUser || task.viewedBy.includes(currentUser.id)) return;
-    const updatedTask = { ...task, viewedBy: [...task.viewedBy, currentUser.id] };
-    setTasks(prev => prev.map(t => t.id === updatedTask.id ? updatedTask : t));
+    const updatedViewedBy = [...task.viewedBy, currentUser.id];
+    await updateDoc(doc(db, "tasks", task.id), { viewedBy: updatedViewedBy });
   };
   
-  const handleReactivateTask = (taskId: string, reason: string, newDueDate: string) => {
-    setTasks(prev => prev.map(t => t.id === taskId ? { 
-        ...t, 
-        // Fix: Use Status enum member instead of string literal to match type.
-        status: Status.ToDo, 
-        dueDate: newDueDate,
-        completedAt: undefined,
-        comments: [...t.comments, { id: `comment-${Date.now()}`, userId: currentUser!.id, content: `Reactivated: ${reason}`, createdAt: new Date().toISOString(), type: 'system' }]
-    } : t));
+  const handleReactivateTask = async (taskId: string, reason: string, newDueDate: string) => {
+    const taskRef = doc(db, "tasks", taskId);
+    const taskDoc = await getDoc(taskRef);
+    if (taskDoc.exists() && currentUser) {
+        const taskData = taskDoc.data() as Task;
+        await updateDoc(taskRef, {
+            status: Status.ToDo, 
+            dueDate: newDueDate,
+            completedAt: undefined, // Firestore can use deleteField() but undefined works
+            comments: [...taskData.comments, { id: `comment-${Date.now()}`, userId: currentUser.id, content: `Reactivated: ${reason}`, createdAt: new Date().toISOString(), type: 'system' }]
+        });
+    }
   };
 
   const handleSendMessage = async (message: string) => {
@@ -176,16 +194,12 @@ const App: React.FC = () => {
     setChatHistory(prev => [...prev, newUserMessage]);
     setIsBotTyping(true);
 
-    // Create history for API call using the current history from state and the new message.
-    // This fixes a stale closure bug where `chatHistory` didn't include the latest user message.
     const historyForApi = [...chatHistory, newUserMessage];
 
     try {
       const ai = new GoogleGenAI({apiKey: process.env.API_KEY});
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
-        // Per Gemini guidelines, send a structured chat history instead of a single string.
-        // We'll take the last 10 messages to keep the context relevant and the payload small.
         contents: historyForApi.slice(-10),
       });
       
@@ -198,10 +212,101 @@ const App: React.FC = () => {
     }
   };
   
-   const handlePasswordChanged = (userId: string, newPassword: string) => {
-      setUsers(prevUsers => prevUsers.map(u => u.id === userId ? { ...u, password: newPassword, forcePasswordChange: false } : u));
-      // Re-set current user to update the state
-      setCurrentUser(prev => prev && ({ ...prev, forcePasswordChange: false }));
+   const handlePasswordChanged = async (userId: string, newPassword: string) => {
+      const user = auth.currentUser;
+      if (user) {
+        try {
+            await updatePassword(user, newPassword);
+            const userRef = doc(db, "users", userId); // assumes doc ID is the custom ID from mock data
+            await updateDoc(userRef, { forcePasswordChange: false });
+            setCurrentUser(prev => prev ? { ...prev, forcePasswordChange: false } : null);
+        } catch(e) {
+            console.error("Password update failed", e);
+            alert("Failed to update password. You may need to log out and log back in.");
+        }
+      }
+  };
+
+  const handleTeamChatMessageSend = async (conversationId: string, content: string) => {
+    if (!currentUser) return;
+    const newMessage: Omit<TeamChatMessage, 'id'> = {
+      conversationId,
+      userId: currentUser.id,
+      content,
+      createdAt: new Date().toISOString()
+    };
+    await addDoc(collection(db, 'team_chat_messages'), newMessage);
+  };
+  
+  const handleUserSave = async (userToSave: User | Omit<User, 'id' | 'createdAt'>) => {
+    if ('id' in userToSave) {
+        const { id, ...userData } = userToSave;
+        await setDoc(doc(db, 'users', id), userData);
+    } else {
+        alert("Adding new users from the app is not supported. Please create an account for the user in Firebase Authentication, then add their details here.");
+    }
+  };
+
+  const handleUserDelete = async (userId: string) => {
+      if (window.confirm('Are you sure you want to delete this user\'s data? This will NOT delete their login account.')) {
+          await deleteDoc(doc(db, 'users', userId));
+      }
+  };
+  
+  const handleDepartmentSave = async (dept: Department | Omit<Department, 'id'>) => {
+      if ('id' in dept) {
+          await setDoc(doc(db, 'departments', dept.id), dept);
+      } else {
+          await addDoc(collection(db, 'departments'), dept);
+      }
+  };
+
+  const handleDepartmentDelete = async (deptId: string) => {
+      if (window.confirm('Are you sure you want to delete this department? This will unassign all users from it.')) {
+          const batch = writeBatch(db);
+          batch.delete(doc(db, 'departments', deptId));
+          users.filter(u => u.departmentId === deptId).forEach(u => {
+              batch.update(doc(db, 'users', u.id), { departmentId: '' });
+          });
+          await batch.commit();
+      }
+  };
+  
+  const handleResourceSave = async (resource: CompanyResource | Omit<CompanyResource, 'id'>) => {
+      if ('id' in resource) {
+          await setDoc(doc(db, 'resources', resource.id), resource);
+      } else {
+          await addDoc(collection(db, 'resources'), resource);
+      }
+  };
+
+  const handleResourceDelete = async (resourceId: string) => {
+      await deleteDoc(doc(db, 'resources', resourceId));
+  };
+  
+  const handleUpdateRolePermissions = async (permissions: RolePermission[]) => {
+      const batch = writeBatch(db);
+      permissions.forEach(rp => {
+          const docRef = doc(db, 'role_permissions', rp.role);
+          batch.set(docRef, rp);
+      });
+      await batch.commit();
+  };
+  
+  const handleUserUpdate = async (user: User) => {
+      await setDoc(doc(db, 'users', user.id), user, { merge: true });
+  };
+  
+  const handleAppSettingsUpdate = async (name: string, url: string) => {
+      await setDoc(doc(db, 'settings', 'app'), { appName: name, logoUrl: url }, { merge: true });
+  };
+  
+  const handleMarkNotificationsAsRead = async () => {
+      const batch = writeBatch(db);
+      notifications.filter(n => !n.isRead).forEach(n => {
+          batch.update(doc(db, 'notifications', n.id), { isRead: true });
+      });
+      await batch.commit();
   };
 
   const renderCurrentView = () => {
@@ -213,34 +318,37 @@ const App: React.FC = () => {
       case 'calendar':
         return <Calendar currentUser={currentUser!} tasks={tasks} users={users} onUpdateTask={handleUpdateTask} onCreateTask={handleCreateTask} onReactivateTask={handleReactivateTask} onTaskRead={handleTaskRead} rolePermissions={rolePermissions} />;
       case 'chat':
-        return <Chat currentUser={currentUser!} users={users} conversations={conversations} messages={teamChatMessages} onSendMessage={(convId, content) => {
-            const newMsg: TeamChatMessage = { id: `msg-${Date.now()}`, conversationId: convId, userId: currentUser!.id, content, createdAt: new Date().toISOString() };
-            setTeamChatMessages(prev => [...prev, newMsg]);
-        }} />;
+        return <Chat currentUser={currentUser!} users={users} conversations={conversations} messages={teamChatMessages} onSendMessage={handleTeamChatMessageSend} />;
       case 'organization':
-        return <Organization departments={departments} users={users} setUsers={setUsers} setDepartments={setDepartments} currentUser={currentUser!} rolePermissions={rolePermissions} onUpdateRolePermissions={setRolePermissions} />;
+        return <Organization departments={departments} users={users} onUserSave={handleUserSave} onUserDelete={handleUserDelete} onDepartmentSave={handleDepartmentSave} onDepartmentDelete={handleDepartmentDelete} currentUser={currentUser!} rolePermissions={rolePermissions} onUpdateRolePermissions={handleUpdateRolePermissions} />;
       case 'resources':
-        return <Resources currentUser={currentUser!} resources={resources} onSave={(res) => {
-            if ('id' in res) {
-                setResources(prev => prev.map(r => r.id === res.id ? res as CompanyResource : r));
-            } else {
-                setResources(prev => [...prev, { ...res, id: `res-${Date.now()}` } as CompanyResource]);
-            }
-        }} onDelete={(id) => setResources(prev => prev.filter(r => r.id !== id))} rolePermissions={rolePermissions}/>;
+        return <Resources currentUser={currentUser!} resources={resources} onSave={handleResourceSave} onDelete={handleResourceDelete} rolePermissions={rolePermissions}/>;
       case 'reports':
         return <Reports tasks={tasks} users={users} departments={departments} />;
       case 'settings':
-        return <Settings currentUser={currentUser!} onUserUpdate={(user) => {
-            setUsers(prev => prev.map(u => u.id === user.id ? user : u));
-            if(currentUser?.id === user.id) setCurrentUser(user);
-        }} appName={appName} logoUrl={logoUrl} onAppSettingsUpdate={(name, url) => {
-            setAppName(name);
-            setLogoUrl(url);
-        }} />;
+        return <Settings currentUser={currentUser!} onUserUpdate={handleUserUpdate} appName={appName} logoUrl={logoUrl} onAppSettingsUpdate={handleAppSettingsUpdate} />;
       default:
         return <Dashboard currentUser={currentUser!} tasks={tasks} users={users} departments={departments} onUpdateTask={handleUpdateTask} onCreateTask={handleCreateTask} onReactivateTask={handleReactivateTask} onTaskRead={handleTaskRead} rolePermissions={rolePermissions} />;
     }
   };
+  
+  const handleNotificationClick = (notification: Notification) => {
+    if (notification.link) {
+      if (notification.link.type === 'task') {
+        setCurrentView('tasks');
+      } else if (notification.link.type === 'chat') {
+        setCurrentView('chat');
+      }
+    }
+  };
+
+  if (authInitializing) {
+      return (
+          <div className="h-screen w-screen flex items-center justify-center bg-base-200 dark:bg-dark-base-100">
+              <div className="w-16 h-16 border-4 border-brand-primary border-t-transparent rounded-full animate-spin"></div>
+          </div>
+      );
+  }
 
   if (!currentUser) {
     return showLogin ? <Login onLogin={handleLogin} appName={appName} logoUrl={logoUrl} /> : <LandingPage onShowLogin={() => setShowLogin(true)} appName={appName} />;
@@ -249,17 +357,6 @@ const App: React.FC = () => {
   if (currentUser.forcePasswordChange) {
       return <ForcePasswordChangeModal currentUser={currentUser} onPasswordChanged={handlePasswordChanged} />;
   }
-  
-  const handleNotificationClick = (notification: Notification) => {
-    if (notification.link) {
-      if (notification.link.type === 'task') {
-        // This is a simplified navigation. A more robust solution might open the task modal directly.
-        setCurrentView('tasks');
-      } else if (notification.link.type === 'chat') {
-        setCurrentView('chat');
-      }
-    }
-  };
   
   return (
     <>
@@ -274,7 +371,7 @@ const App: React.FC = () => {
         onSendMessage={handleSendMessage}
         isBotTyping={isBotTyping}
         notifications={notifications}
-        onMarkNotificationsAsRead={() => setNotifications(prev => prev.map(n => ({...n, isRead: true})))}
+        onMarkNotificationsAsRead={handleMarkNotificationsAsRead}
         rolePermissions={rolePermissions}
         appName={appName}
         logoUrl={logoUrl}

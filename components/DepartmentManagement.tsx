@@ -1,4 +1,5 @@
-import React, { useState, useCallback } from 'react';
+// Fix: Import 'useEffect' from 'react' to resolve 'Cannot find name' error.
+import React, { useState, useCallback, useEffect } from 'react';
 import { Department, User, Role, RolePermission, Permission } from '../types';
 import { PlusIcon, TrashIcon, PencilIcon } from './icons/SolidIcons';
 import PermissionsManagement from './PermissionsManagement';
@@ -6,14 +7,19 @@ import PermissionsManagement from './PermissionsManagement';
 interface OrganizationProps {
   departments: Department[];
   users: User[];
-  setUsers: React.Dispatch<React.SetStateAction<User[]>>;
-  setDepartments: React.Dispatch<React.SetStateAction<Department[]>>;
+  onUserSave: (user: User | Omit<User, 'id' | 'createdAt'>) => void;
+  onUserDelete: (userId: string) => void;
+  onDepartmentSave: (dept: Department | Omit<Department, 'id'>) => void;
+  onDepartmentDelete: (deptId: string) => void;
   currentUser: User;
   rolePermissions: RolePermission[];
   onUpdateRolePermissions: (updatedPermissions: RolePermission[]) => void;
 }
 
-const Organization: React.FC<OrganizationProps> = ({ departments, users, setUsers, setDepartments, currentUser, rolePermissions, onUpdateRolePermissions }) => {
+const Organization: React.FC<OrganizationProps> = ({ 
+  departments, users, onUserSave, onUserDelete, onDepartmentSave, onDepartmentDelete, 
+  currentUser, rolePermissions, onUpdateRolePermissions 
+}) => {
   const [activeTab, setActiveTab] = useState('users');
 
   const hasPermission = useCallback((permission: Permission): boolean => {
@@ -64,8 +70,8 @@ const Organization: React.FC<OrganizationProps> = ({ departments, users, setUser
         </nav>
       </div>
       <div>
-        {activeTab === 'users' && <UserManagement users={users} setUsers={setUsers} departments={departments} canManage={hasPermission(Permission.CanManageUsers)} />}
-        {activeTab === 'departments' && <DepartmentManagement departments={departments} setDepartments={setDepartments} users={users} setUsers={setUsers} canManage={hasPermission(Permission.CanManageDepartments)} />}
+        {activeTab === 'users' && <UserManagement users={users} onSaveUser={onUserSave} onDeleteUser={onUserDelete} departments={departments} canManage={hasPermission(Permission.CanManageUsers)} />}
+        {activeTab === 'departments' && <DepartmentManagement departments={departments} onSaveDepartment={onSaveDepartment} onDeleteDepartment={onDeleteDepartment} users={users} canManage={hasPermission(Permission.CanManageDepartments)} />}
         {activeTab === 'permissions' && canManagePermissions && <PermissionsManagement rolePermissions={rolePermissions} onSave={onUpdateRolePermissions} />}
       </div>
     </div>
@@ -73,7 +79,7 @@ const Organization: React.FC<OrganizationProps> = ({ departments, users, setUser
 };
 
 // --- User Management ---
-const UserManagement = ({ users, setUsers, departments, canManage }: { users: User[], setUsers: React.Dispatch<React.SetStateAction<User[]>>, departments: Department[], canManage: boolean }) => {
+const UserManagement = ({ users, onSaveUser, onDeleteUser, departments, canManage }: { users: User[], onSaveUser: OrganizationProps['onUserSave'], onDeleteUser: OrganizationProps['onUserDelete'], departments: Department[], canManage: boolean }) => {
     
     const [isUserModalOpen, setIsUserModalOpen] = useState(false);
     const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -88,27 +94,8 @@ const UserManagement = ({ users, setUsers, departments, canManage }: { users: Us
         setIsUserModalOpen(true);
     };
 
-    const handleDeleteUser = (userId: string) => {
-        if(window.confirm('Are you sure you want to delete this user? This cannot be undone.')) {
-            setUsers(prev => prev.filter(u => u.id !== userId));
-        }
-    }
-
     const handleSaveUser = (user: User | Omit<User, 'id' | 'createdAt'>) => {
-        if ('id' in user) {
-            // Update
-            setUsers(prev => prev.map(u => u.id === user.id ? user as User : u));
-        } else {
-            // Create
-            const newUser: User = {
-                ...user,
-                id: `user-${Date.now()}`,
-                createdAt: new Date().toISOString(),
-                avatar: `https://picsum.photos/seed/user-${Date.now()}/100`,
-                forcePasswordChange: false, // User can log in with this password
-            };
-            setUsers(prev => [...prev, newUser]);
-        }
+        onSaveUser(user);
         setIsUserModalOpen(false);
     };
 
@@ -145,7 +132,7 @@ const UserManagement = ({ users, setUsers, departments, canManage }: { users: Us
                                 <td className="px-6 py-4 whitespace-nowrap text-sm">{departments.find(d => d.id === user.departmentId)?.name || 'N/A'}</td>
                                 {canManage && <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                     <button onClick={() => handleEditUser(user)} className="text-brand-primary hover:text-brand-secondary p-1"><PencilIcon className="w-5 h-5"/></button>
-                                    <button onClick={() => handleDeleteUser(user.id)} className="text-red-600 hover:text-red-800 p-1 ml-2"><TrashIcon className="w-5 h-5"/></button>
+                                    <button onClick={() => onDeleteUser(user.id)} className="text-red-600 hover:text-red-800 p-1 ml-2"><TrashIcon className="w-5 h-5"/></button>
                                 </td>}
                             </tr>
                         ))}
@@ -158,29 +145,21 @@ const UserManagement = ({ users, setUsers, departments, canManage }: { users: Us
 }
 
 // --- Department Management ---
-const DepartmentManagement = ({ departments, setDepartments, users, setUsers, canManage }: { departments: Department[], setDepartments: React.Dispatch<React.SetStateAction<Department[]>>, users: User[], setUsers: React.Dispatch<React.SetStateAction<User[]>>, canManage: boolean }) => {
+const DepartmentManagement = ({ departments, onSaveDepartment, onDeleteDepartment, users, canManage }: { departments: Department[], onSaveDepartment: OrganizationProps['onDepartmentSave'], onDeleteDepartment: OrganizationProps['onDepartmentDelete'], users: User[], canManage: boolean }) => {
   const [newDeptName, setNewDeptName] = useState('');
   const [editingDeptId, setEditingDeptId] = useState<string | null>(null);
   const [editingDeptName, setEditingDeptName] = useState('');
 
   const handleAddDepartment = () => {
     if (newDeptName.trim()) {
-      const newDept: Department = { id: `dept-${Date.now()}`, name: newDeptName.trim() };
-      setDepartments([...departments, newDept]);
+      onSaveDepartment({ name: newDeptName.trim() });
       setNewDeptName('');
     }
   };
 
   const handleUpdateDepartment = (id: string) => {
-    setDepartments(departments.map(d => d.id === id ? { ...d, name: editingDeptName.trim() } : d));
+    onSaveDepartment({ id, name: editingDeptName.trim() });
     setEditingDeptId(null);
-  };
-
-  const handleDeleteDepartment = (id: string) => {
-    if (window.confirm('Are you sure you want to delete this department? This will unassign all users from it.')) {
-        setDepartments(departments.filter(d => d.id !== id));
-        setUsers(users.map(u => u.departmentId === id ? { ...u, departmentId: '' } : u));
-    }
   };
 
    return (
@@ -211,7 +190,7 @@ const DepartmentManagement = ({ departments, setDepartments, users, setUsers, ca
                   <button onClick={() => setEditingDeptId(null)} className="px-3 py-1 bg-slate-500 text-white rounded hover:bg-slate-600">Cancel</button>
                 </>
               ) : <button onClick={() => { setEditingDeptId(dept.id); setEditingDeptName(dept.name); }} className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600">Edit</button>}
-              <button onClick={() => handleDeleteDepartment(dept.id)} className="p-2 bg-red-500 text-white rounded hover:bg-red-600"><TrashIcon className="w-4 h-4" /></button>
+              <button onClick={() => onDeleteDepartment(dept.id)} className="p-2 bg-red-500 text-white rounded hover:bg-red-600"><TrashIcon className="w-4 h-4" /></button>
             </div>}
           </div>
           <h3 className="font-semibold mb-2 text-sm text-base-content-secondary dark:text-dark-base-content-secondary">Members ({users.filter(u => u.departmentId === dept.id).length})</h3>
@@ -232,11 +211,15 @@ const DepartmentManagement = ({ departments, setDepartments, users, setUsers, ca
 
 // --- User Modal ---
 const UserModal = ({ isOpen, onClose, user, onSave, departments }: { isOpen: boolean, onClose: () => void, user: User | null, onSave: (user: User | Omit<User, 'id' | 'createdAt'>) => void, departments: Department[] }) => {
-    const [formState, setFormState] = useState<Partial<User>>(user || { name: '', email: '', phone: '', role: Role.Employee, departmentId: '', password: ''});
+    const [formState, setFormState] = useState<Partial<User>>(user || { name: '', email: '', phone: '', role: Role.Employee, departmentId: ''});
     
+    useEffect(() => {
+        setFormState(user || { name: '', email: '', phone: '', role: Role.Employee, departmentId: '' });
+    }, [user, isOpen]);
+
     const handleSave = () => {
-        if (!user && !formState.password) {
-            alert('Password is required for new users.');
+        if (!formState.name || !formState.email) {
+            alert('Name and Email are required.');
             return;
         }
         onSave(formState as User);
@@ -250,24 +233,21 @@ const UserModal = ({ isOpen, onClose, user, onSave, departments }: { isOpen: boo
                     <button onClick={onClose}>&times;</button>
                 </div>
                 <div className="p-6 space-y-4">
+                    <p className="text-sm text-base-content-secondary dark:text-dark-base-content-secondary bg-base-200 dark:bg-dark-base-300 p-3 rounded-md">
+                        {user ? 'Editing user details.' : 'To add a new user, first create their login account in the Firebase Authentication console, then add their details here using the same email.'}
+                    </p>
                     <div>
                         <label className="block text-sm font-medium">Full Name</label>
                         <input type="text" value={formState.name} onChange={e => setFormState({...formState, name: e.target.value})} className="mt-1 block w-full input-style" />
                     </div>
                      <div>
                         <label className="block text-sm font-medium">Email</label>
-                        <input type="email" value={formState.email} onChange={e => setFormState({...formState, email: e.target.value})} className="mt-1 block w-full input-style" />
+                        <input type="email" value={formState.email} disabled={!!user} onChange={e => setFormState({...formState, email: e.target.value})} className="mt-1 block w-full input-style disabled:opacity-50" />
                     </div>
                      <div>
                         <label className="block text-sm font-medium">Phone</label>
                         <input type="tel" value={formState.phone} onChange={e => setFormState({...formState, phone: e.target.value})} className="mt-1 block w-full input-style" />
                     </div>
-                    {!user && (
-                         <div>
-                            <label className="block text-sm font-medium">Password</label>
-                            <input type="password" value={formState.password} onChange={e => setFormState({...formState, password: e.target.value})} className="mt-1 block w-full input-style" />
-                        </div>
-                    )}
                     <div className="grid grid-cols-2 gap-4">
                          <div>
                             <label className="block text-sm font-medium">Role</label>
